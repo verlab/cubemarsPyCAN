@@ -196,8 +196,20 @@ pytest -q                    # ~1200 tests, no hardware needed
 ruff check . && mypy
 ```
 
-CI runs macOS and Ubuntu on Python 3.10–3.13, plus a dedicated `vcan` job so the socketcan
-paths are exercised for real.
+CI runs macOS and Ubuntu on Python 3.10–3.13. A separate job runs `pytest -m socketcan`
+against a real `vcan` interface, covering the code the in-process `virtual` backend cannot
+reach: opening an interface, reading bitrate and controller state back, kernel receive
+filters, and `Frame` ↔ `can.Message` as the kernel sees it.
+
+GitHub's hosted runner kernels do not always ship the `vcan` module. When it is missing
+that job warns and skips rather than failing, so socketcan coverage is best-effort on
+hosted CI and guaranteed only where you can load the module. To run it yourself:
+
+```bash
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan && sudo ip link set up vcan0
+pytest -m socketcan
+```
 
 ## Licence
 

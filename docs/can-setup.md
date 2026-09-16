@@ -42,15 +42,23 @@ BitRate=1M
 
 ### No hardware? Use vcan
 
-A virtual CAN interface behaves like a real one, which is how this project's CI exercises
-the socketcan code path:
+A virtual CAN interface behaves like a real one. It is how this project covers the
+socketcan-only code — interface opening, bitrate and controller-state read-back, kernel
+receive filters — that python-can's in-process `virtual` backend never touches:
 
 ```bash
 sudo modprobe vcan
 sudo ip link add dev vcan0 type vcan
 sudo ip link set up vcan0
 cubemars scan --url socketcan:vcan0
+pytest -m socketcan                      # the interface-backed tests
 ```
+
+Note that a `vcan` interface has no bit timing and no error state, so
+`read_socketcan_bitrate()` and `read_socketcan_state()` return `None` for it. That is the
+useful case to test: it is the same shape as a gs_usb adapter whose kernel exposes no
+`can_bittiming` directory, which once made `doctor` report "no bitrate set" for a
+perfectly healthy 1 Mbit/s link.
 
 ## macOS and Windows (development)
 

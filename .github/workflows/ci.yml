@@ -14,8 +14,8 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
@@ -31,24 +31,54 @@ jobs:
       - name: Clean-room check
         run: python tools/check_cleanroom.py
 
-  # The production target is Linux socketcan, and python-can's `virtual` backend does not
-  # exercise any of the socketcan-specific paths (kernel filters, sysfs bitrate read-back,
-  # ENOBUFS). vcan gives us a real socketcan interface in CI with no hardware attached.
+  # python-can's `virtual` backend is an in-process queue, so it exercises none of the
+  # socketcan-only code: opening an interface, reading bitrate and controller state back,
+  # kernel receive filters, and Frame <-> can.Message as the kernel sees it. This job runs
+  # `-m socketcan` against a real vcan interface to cover exactly that.
   socketcan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
       - name: Bring up a virtual CAN interface
+        id: vcan
         run: |
-          sudo modprobe vcan
+          set -u
+          # GitHub's Azure runner kernels do not ship the vcan module by default. Try the
+          # matching extras package; if it is unavailable for this exact kernel, say so
+          # and skip. Socketcan coverage is a bonus on hosted runners, not the gate --
+          # the test matrix above is the gate.
+          if ! sudo modprobe vcan 2>/dev/null; then
+            echo "vcan not built in; trying linux-modules-extra-$(uname -r)"
+            sudo apt-get update -qq || true
+            sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" || true
+          fi
+          if ! sudo modprobe vcan 2>/dev/null; then
+            echo "::warning::vcan unavailable on kernel $(uname -r); skipping socketcan coverage"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           sudo ip link add dev vcan0 type vcan
           sudo ip link set up vcan0
           ip -details link show vcan0
-      - run: pip install -e ".[dev]"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        if: steps.vcan.outputs.available == 'true'
+        run: pip install -e ".[dev]"
+
       - name: Tests against socketcan:vcan0
+        if: steps.vcan.outputs.available == 'true'
         env:
           CUBEMARS_TEST_CHANNEL: "socketcan:vcan0"
-        run: pytest -q -m "not hardware"
+        run: |
+          # -m socketcan selects only the interface-backed tests. If they all skip, the
+          # interface did not come up the way we think it did, so fail loudly rather than
+          # reporting a green job that ran nothing.
+          pytest -q -m socketcan -p no:randomly --no-header -rs \
+            | tee /tmp/socketcan.log
+          grep -qE "[0-9]+ passed" /tmp/socketcan.log \
+            || { echo "::error::socketcan tests ran nothing"; exit 1; }
