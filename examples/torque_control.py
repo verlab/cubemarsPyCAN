@@ -17,7 +17,7 @@ Two caveats the wire imposes, both real:
 
 from __future__ import annotations
 
-from _common import base_parser, open_rig, settle_time, wait_for_control
+from _common import base_parser, open_rig, settle, wait_for_control
 
 from cubemarspycan import MitMotor, SafetyPolicy
 
@@ -64,7 +64,7 @@ def main() -> None:
 
         with motor.control(wait_s=wait_for_control(rig)):
             motor.zero_here()
-            motor.settle(settle_time(rig))
+            settle(rig, motor)
 
             ticker = rig.ticker(args.period)
             while ticker.running(args.duration):

@@ -52,19 +52,25 @@ class Rig:
 
 
 @contextmanager
-def open_rig(args: argparse.Namespace, motor_ids: tuple[int, ...] = ()) -> Iterator[Rig]:
-    """Open a real bus, or a simulated one carrying ``motor_ids`` MIT drivers."""
+def open_rig(
+    args: argparse.Namespace,
+    motor_ids: tuple[int, ...] = (),
+    servo_ids: tuple[int, ...] = (),
+) -> Iterator[Rig]:
+    """Open a real bus, or a simulated one carrying the given MIT and servo drivers."""
     spec = get_spec(args.motor)
     if not args.sim:
         with CanTransport.open(args.url) as transport, MotorBus(transport) as bus:
             yield Rig(bus, None, spec)
         return
 
-    from cubemarspycan.sim import SimMitDriver, sim_bus
+    from cubemarspycan.sim import SimMitDriver, SimServoDriver, sim_bus
 
-    ids = motor_ids or (args.id,)
-    drivers = [SimMitDriver(spec, motor_id=i) for i in ids]
-    bus, sim = sim_bus(mit_drivers=drivers)
+    mit_ids = motor_ids or ((args.id,) if not servo_ids else ())
+    bus, sim = sim_bus(
+        mit_drivers=[SimMitDriver(spec, motor_id=i) for i in mit_ids],
+        servo_drivers=[SimServoDriver(spec, motor_id=i, status_rate_hz=200.0) for i in servo_ids],
+    )
     try:
         yield Rig(bus, sim, spec)
     finally:
@@ -111,9 +117,24 @@ def wait_for_control(rig: Rig) -> float:
     return 0.0 if rig.simulated else 1.5
 
 
-def settle_time(rig: Rig) -> float:
-    """Seconds to hold after ``zero_here()``. The simulator zeroes instantly."""
-    return 0.0 if rig.simulated else 1.5
+def settle(rig: Rig, motor: object, seconds: float = 1.5, period: float = 0.005) -> None:
+    """Hold after ``zero_here()``, doing the right thing for hardware and for the sim.
+
+    On hardware the driver stops replying for about a second while it zeroes, so the link
+    has to be kept alive - a bare ``time.sleep`` sends nothing and the next ``update()``
+    correctly raises ``StaleFeedbackError``.
+
+    Under the stepped simulator the opposite problem applies: ``motor.settle()`` sleeps,
+    and sleeping never advances a simulator that only moves when told to. So there we tick
+    instead, briefly.
+    """
+    if rig.simulated:
+        ticker = rig.ticker(period)
+        while ticker.running(0.1):
+            motor.update()  # type: ignore[attr-defined]
+            ticker.tick()
+    else:
+        motor.settle(seconds)  # type: ignore[attr-defined]
 
 
 __all__ = [
@@ -122,6 +143,6 @@ __all__ = [
     "Ticker",
     "base_parser",
     "open_rig",
-    "settle_time",
+    "settle",
     "wait_for_control",
 ]

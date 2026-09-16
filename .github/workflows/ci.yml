@@ -26,8 +26,8 @@ jobs:
       - name: Tests
         run: pytest -q --cov=cubemarspycan --cov-report=term-missing
 
-      # The licence is undecided, so the implementation stays clean-room from the manual.
-      # This fails on any long run of tokens shared with the GPLv3 reference library.
+      # This project is MIT; the reference library it replaces is GPLv3. That only holds
+      # if the implementation stays clean-room, so fail on any long run of shared tokens.
       - name: Clean-room check
         run: python tools/check_cleanroom.py
 

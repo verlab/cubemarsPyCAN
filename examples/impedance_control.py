@@ -14,7 +14,7 @@ dressed up as a unit. See docs/units.md.
 
 from __future__ import annotations
 
-from _common import base_parser, open_rig, settle_time, wait_for_control
+from _common import base_parser, open_rig, settle, wait_for_control
 
 from cubemarspycan import MitMotor, SafetyPolicy
 
@@ -32,6 +32,9 @@ STAGES = [
 def main() -> None:
     parser = base_parser(__doc__ or "")
     parser.add_argument("--target", type=float, default=0.0, help="hold position, rad")
+    parser.add_argument(
+        "--stage-seconds", type=float, default=4.0, help="seconds per stiffness setting"
+    )
     args = parser.parse_args()
 
     with open_rig(args) as rig:
@@ -47,9 +50,10 @@ def main() -> None:
 
         with motor.control(wait_s=wait_for_control(rig)):
             motor.zero_here()
-            motor.settle(settle_time(rig))
+            settle(rig, motor)
 
-            for label, kp, kd, seconds in STAGES:
+            for label, kp, kd, _default in STAGES:
+                seconds = args.stage_seconds
                 ticker = rig.ticker(args.period)
                 excursion = 0.0
                 peak_torque = 0.0

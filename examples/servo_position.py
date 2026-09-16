@@ -1,80 +1,81 @@
-"""Servo-mode position command on an AK40-10.
+"""Servo-mode position and trapezoidal moves.
 
-    python examples/servo_position.py --url socketcan:can0 --id 1
+Servo mode is a different protocol on the same wire: extended frames, degrees instead of
+radians, electrical RPM instead of rad/s, and six mutually exclusive command types. The
+driver runs its own position loop, so you send a target rather than gains.
+
+Two prerequisites, both set in CubeMarsTool and neither commandable over CAN:
+
+* The driver must be in servo mode. The manual documents a reply that *acknowledges* the
+  mode but no frame that causes it, so this library detects rather than guesses.
+* The CAN status message rate must be non-zero. At 0 the driver never uploads anything,
+  the wiring is fine, and nothing arrives - the single most common bench confusion.
+
     python examples/servo_position.py --sim
-
-The driver must already be in servo mode, with a non-zero CAN status rate, both set in
-CubeMarsTool. This library detects servo mode; the manual documents no frame that causes
-it to be entered.
+    python examples/servo_position.py --url socketcan:can0 --id 1 --degrees 90
 """
 
 from __future__ import annotations
 
-import argparse
+from _common import base_parser, open_rig, wait_for_control
 
-from cubemarspycan import (
-    CanTransport,
-    MotorBus,
-    OriginMode,
-    SafetyPolicy,
-    ServoMotor,
-    get_spec,
-    servo,
-)
+from cubemarspycan import OriginMode, SafetyPolicy, ServoMotor, servo
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="socketcan:can0")
-    parser.add_argument("--id", type=int, default=1)
-    parser.add_argument("--motor", default="AK40-10")
-    parser.add_argument("--degrees", type=float, default=90.0)
+    parser = base_parser(__doc__ or "")
+    parser.add_argument("--degrees", type=float, default=90.0, help="target, degrees")
     parser.add_argument("--speed-erpm", type=float, default=5000.0)
-    parser.add_argument("--accel", type=float, default=30000.0)
-    parser.add_argument("--steps", type=int, default=200)
-    parser.add_argument("--sim", action="store_true")
+    parser.add_argument("--accel", type=float, default=30000.0, help="ERPM/s^2")
+    parser.add_argument(
+        "--simple", action="store_true", help="plain SET_POS instead of a trapezoidal profile"
+    )
     args = parser.parse_args()
 
-    spec = get_spec(args.motor)
-    policy = SafetyPolicy(max_temp_c=75.0, current_ceiling_a=3.0)
-
-    if args.sim:
-        from cubemarspycan.sim import SimServoDriver, sim_bus
-
-        driver = SimServoDriver(spec, motor_id=args.id, status_rate_hz=200.0)
-        bus, sim = sim_bus(servo_drivers=[driver])
-        run(bus, args, spec, policy, sim=sim)
-        bus.close()
-        sim.close()
-        return
-
-    with CanTransport.open(args.url) as transport, MotorBus(transport) as bus:
-        run(bus, args, spec, policy)
-
-
-def run(bus, args, spec, policy, sim=None) -> None:  # type: ignore[no-untyped-def]
-    import time
-
-    motor = ServoMotor(bus, args.id, spec, policy=policy)
-    print(motor.describe())
-    print()
-
-    with motor.control(wait_s=0.0 if sim else 1.0):
-        # Temporary, not permanent: mode 1 writes flash and the AK40-10 is single-encoder.
-        motor.set_origin(OriginMode.TEMPORARY)
-
-        setpoint = servo.PositionSpeed(
-            args.degrees, speed_erpm=args.speed_erpm, accel_erpm_s2=args.accel
+    with open_rig(args, servo_ids=(args.id,)) as rig:
+        motor = ServoMotor(
+            rig.bus,
+            args.id,
+            rig.spec,
+            supply_voltage=args.supply,
+            policy=SafetyPolicy(max_temp_c=70.0, current_ceiling_a=3.0),
         )
-        print(f"commanding {setpoint.summary}\n")
-        for _ in range(args.steps):
-            status = motor.update(setpoint)
-            print(f"\r  {status}", end="", flush=True)
-            if sim is not None:
-                sim.advance(0.005)
-            else:
-                time.sleep(0.005)
-    print("\ndone")
+        print(motor.describe().split("\n\n")[0])
+        print()
+
+        with motor.control(wait_s=wait_for_control(rig)):
+            # Temporary, not permanent: mode 1 writes flash and the manual restricts it
+            # to dual-encoder models. On an AK40-10 the library refuses it outright.
+            motor.set_origin(OriginMode.TEMPORARY)
+
+            setpoint: servo.Setpoint = (
+                servo.Position(args.degrees)
+                if args.simple
+                else servo.PositionSpeed(
+                    args.degrees,
+                    speed_erpm=args.speed_erpm,
+                    accel_erpm_s2=args.accel,
+                )
+            )
+            print(f"commanding {setpoint.summary}\n")
+
+            ticker = rig.ticker(args.period)
+            status = None
+            while ticker.running(args.duration):
+                status = motor.update(setpoint)
+                if int(ticker.t * 4) != int((ticker.t - args.period) * 4):
+                    print(f"\r  {status}", end="", flush=True)
+                ticker.tick()
+            motor.stop()
+
+        print(f"\n\nfinal {status.position_deg:+.2f} deg, commanded {args.degrees:+.2f}")
+        if rig.spec.drivetrain.pole_pairs.known and status is not None:
+            print(
+                f"  {status.velocity_erpm:+.0f} ERPM is "
+                f"{status.velocity_radps:+.3f} rad/s at the output"
+            )
+        print("\n  status.position_deg is always available. status.output_rad refuses")
+        print("  until the gearbox side is measured - the manual never says which it is.")
 
 
 if __name__ == "__main__":

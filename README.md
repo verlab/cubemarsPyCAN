@@ -59,19 +59,52 @@ cubemars jog --id 1 --position 0.1  # a gentle move, confirms first
 cubemars dump-spec AK40-10          # fields, derived values, provenance
 ```
 
-`scan` is the one to reach for when something is wrong:
+`scan` is the one to reach for when something is wrong. A MIT driver only replies when
+commanded, so `--poke N` prods ids 1..N without moving anything:
 
 ```
+$ cubemars scan --poke 8
 2 motor(s), 85 frame(s):
 
   id 1  mode MIT
-    MIT replies      : 43  on arbitration id 0x000 (43)
+    MIT replies      : 43  on arbitration id 0x001 (43)
     -> the manual is ambiguous here; record this id and pass reply_mode= to pin it.
-    last             : +0.0002 rad  +0.011 rad/s  +0.001 Nm  30 C  fault 0
+    last             : -1.6939 rad  +0.011 rad/s  +0.001 Nm  32 C  fault 0
 
   id 3  mode servo
     servo status     : 42
 ```
+
+On a silent bus it ranks the causes, naming the one that wastes an afternoon first: a
+servo driver whose CAN status rate is 0 in CubeMarsTool never uploads anything, so the
+wiring is fine and nothing arrives.
+
+Full recipes — first bring-up, finding an unknown id, diagnosing a dead bus, checking a
+motor before a run — are in **[docs/cli.md](docs/cli.md)**.
+
+## Examples
+
+Every example takes `--sim` and runs against a protocol-accurate simulator, so you can try
+them all with no hardware. CI runs each one on every commit, so they cannot go stale.
+
+```bash
+python examples/mit_position_step.py --sim
+python examples/trajectory_tracking.py --url socketcan:can0 --id 1
+```
+
+| Example | What it shows |
+|---|---|
+| [`mit_position_step.py`](examples/mit_position_step.py) | Start here. Square-wave position steps, error in rad and LSBs. |
+| [`trajectory_tracking.py`](examples/trajectory_tracking.py) | **Velocity feedforward.** Measured 3.5× less following error on hardware. |
+| [`impedance_control.py`](examples/impedance_control.py) | Variable stiffness, from free to stiff. What MIT mode is actually for. |
+| [`torque_control.py`](examples/torque_control.py) | Direct torque, and the ±1.22 mN·m quantisation floor. |
+| [`velocity_control.py`](examples/velocity_control.py) | Speed control via `kd`, and why steady-state error is `friction/kd`. |
+| [`two_motors.py`](examples/two_motors.py) | Leader–follower on one bus; proves the endpoints never cross-talk. |
+| [`homing.py`](examples/homing.py) | Find a hard stop by torque, back off, zero against it. |
+| [`fault_handling.py`](examples/fault_handling.py) | Faults, staleness, over-temperature, and recovery. |
+| [`log_to_csv.py`](examples/log_to_csv.py) | Record a run, using the receive timestamp rather than `time.time()`. |
+| [`servo_position.py`](examples/servo_position.py) | Servo mode: degrees, ERPM, trapezoidal moves. |
+| [`servo_modes.py`](examples/servo_modes.py) | All six servo commands, and the two the library refuses. |
 
 ## Why another library
 
@@ -131,6 +164,7 @@ against a virtual bus, not read off:
 
 | | |
 |---|---|
+| [docs/cli.md](docs/cli.md) | command-line recipes for bring-up and diagnosis |
 | [docs/units.md](docs/units.md) | the unit contract, and why Kp/Kd are not in SI units |
 | [docs/can-setup.md](docs/can-setup.md) | socketcan on Ubuntu, slcan on macOS, vcan for CI |
 | [docs/bench.md](docs/bench.md) | first bench session, step by step |
@@ -167,6 +201,12 @@ paths are exercised for real.
 
 ## Licence
 
-Not yet chosen. The implementation is clean-room from the manual and the CubeMars
-datasheets — no code is taken from TMotorCANControl (GPLv3) — so both permissive and
-copyleft remain open.
+[MIT](LICENSE).
+
+The implementation is clean-room from the *AK Series Module Driver Manual* v1.0.18 and the
+CubeMars product datasheets. No code is taken from TMotorCANControl, which is GPLv3 —
+`tools/check_cleanroom.py` compares token shingles against it and runs in CI, so the
+permissive licence stays defensible rather than merely asserted.
+
+The manual and datasheets remain CubeMars' copyright. This repository cites them by page
+and does not redistribute them.

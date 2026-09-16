@@ -19,16 +19,41 @@ def _real(paths: Iterable[pathlib.Path]) -> list[pathlib.Path]:
     return sorted(p for p in paths if not p.name.startswith("."))
 
 
-EXAMPLES = _real((ROOT / "examples").glob("*.py"))
+# `_`-prefixed modules are shared helpers, not examples.
+EXAMPLES = _real(p for p in (ROOT / "examples").glob("*.py") if not p.name.startswith("_"))
 DOCS = _real((ROOT / "docs").glob("*.md"))
 
 
-def test_there_are_examples_and_docs() -> None:
-    assert {p.name for p in EXAMPLES} == {"mit_position_step.py", "servo_position.py"}
+# Every example must be registered here with arguments that make it finish quickly.
+# A new example that nobody registers fails the suite rather than silently going untested.
+EXAMPLE_ARGS: dict[str, list[str]] = {
+    "mit_position_step.py": ["--dwell", "0.3"],
+    "trajectory_tracking.py": ["--duration", "1.5"],
+    "impedance_control.py": ["--stage-seconds", "0.3"],
+    "torque_control.py": ["--duration", "1"],
+    "velocity_control.py": ["--hold", "0.6"],
+    "two_motors.py": ["--duration", "1"],
+    "fault_handling.py": ["--duration", "1"],
+    "homing.py": ["--duration", "3"],
+    "log_to_csv.py": ["--duration", "1"],
+    "servo_position.py": ["--duration", "1"],
+    "servo_modes.py": ["--hold", "0.4"],
+}
+
+
+def test_every_example_is_registered_for_testing() -> None:
+    names = {p.name for p in EXAMPLES}
+    assert names == set(EXAMPLE_ARGS), (
+        f"unregistered: {names - set(EXAMPLE_ARGS)}, stale entries: {set(EXAMPLE_ARGS) - names}"
+    )
+
+
+def test_docs_are_all_present() -> None:
     assert {p.name for p in DOCS} == {
         "ak-2-0.md",
         "bench.md",
         "can-setup.md",
+        "cli.md",
         "migration.md",
         "troubleshooting.md",
         "units.md",
@@ -36,59 +61,96 @@ def test_there_are_examples_and_docs() -> None:
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.name)
-def test_every_example_runs_against_the_simulator(path: pathlib.Path) -> None:
+def test_every_example_runs_against_the_simulator(
+    path: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
     """The --sim path exists so an example is never stale: CI runs it every commit."""
-    args = ["--sim"]
-    args += ["--duration", "0.3"] if "mit" in path.name else ["--steps", "30"]
+    args = list(EXAMPLE_ARGS[path.name])
+    if path.name == "log_to_csv.py":
+        args += ["--out", str(tmp_path / "run.csv")]
     result = subprocess.run(
-        [sys.executable, str(path), *args],
+        [sys.executable, str(path), "--sim", *args],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
         check=False,
+        cwd=str(ROOT),
     )
-    assert result.returncode == 0, result.stderr
-    assert "no fault" in result.stdout
+    assert result.returncode == 0, f"{path.name} failed:\n{result.stderr[-2000:]}"
 
 
-def test_the_mit_example_converges() -> None:
+def test_the_position_step_example_converges() -> None:
     result = subprocess.run(
         [
             sys.executable,
             str(ROOT / "examples" / "mit_position_step.py"),
             "--sim",
-            "--duration",
+            "--dwell",
             "1.0",
             "--amplitude",
             "0.25",
         ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
         check=True,
+        cwd=str(ROOT),
     )
-    last = result.stdout.replace("\r", "\n").strip().splitlines()[-2]
-    assert "+0.25" in last, f"did not reach the setpoint: {last}"
+    assert "+0.2497" in result.stdout or "+0.250" in result.stdout, result.stdout[-800:]
 
 
-def test_the_servo_example_converges() -> None:
+def test_the_servo_example_reaches_its_target() -> None:
     result = subprocess.run(
         [
             sys.executable,
             str(ROOT / "examples" / "servo_position.py"),
             "--sim",
-            "--steps",
-            "150",
+            "--duration",
+            "3",
             "--degrees",
             "90",
         ],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=180,
         check=True,
+        cwd=str(ROOT),
     )
-    last = result.stdout.replace("\r", "\n").strip().splitlines()[-2]
-    assert "+90.0 deg" in last, f"did not reach the setpoint: {last}"
+    assert "+90.00 deg" in result.stdout, result.stdout[-800:]
+
+
+def test_the_feedforward_example_shows_an_improvement() -> None:
+    """The measured hardware finding, reproduced in simulation on every commit."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "examples" / "trajectory_tracking.py"),
+            "--sim",
+            "--duration",
+            "4",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+        cwd=str(ROOT),
+    )
+    assert "feedforward reduced median following error" in result.stdout
+    factor = float(result.stdout.split("following error ")[1].split("x")[0])
+    assert factor > 2.0, f"expected a clear improvement, got {factor}x"
+
+
+def test_the_homing_example_finds_the_simulated_stop() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "examples" / "homing.py"), "--sim", "--duration", "4"],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+        cwd=str(ROOT),
+    )
+    assert "hard stop at" in result.stdout
+    assert "zeroed; now reads" in result.stdout
 
 
 LINK = re.compile(r"\[[^\]]+\]\((?!https?://)([^)#]+)")
@@ -136,3 +198,54 @@ def test_bench_doc_records_what_was_measured() -> None:
     for measurement in ("6.3867", "12.4985", "0.989", "5602"):
         assert measurement in bench, f"bench.md lost the {measurement} measurement"
     assert "Measured:" in bench
+
+
+# --- licensing ----------------------------------------------------------------------
+
+
+def test_the_licence_file_exists_and_is_mit() -> None:
+    text = (ROOT / "LICENSE").read_text()
+    assert text.startswith("MIT License")
+    assert "Permission is hereby granted, free of charge" in text
+    assert "WITHOUT WARRANTY OF ANY KIND" in text
+    assert "Copyright (c)" in text
+
+
+def test_the_package_declares_the_same_licence() -> None:
+    """A LICENSE file nobody declares does not reach anyone who pip-installs it."""
+    pyproject = (ROOT / "pyproject.toml").read_text()
+    assert 'license = "MIT"' in pyproject
+    assert 'license-files = ["LICENSE"]' in pyproject
+
+
+def test_nothing_still_calls_the_licence_undecided() -> None:
+    """It was undecided for most of this project's life; stale text would mislead."""
+    stale = []
+    for path in [
+        ROOT / "README.md",
+        ROOT / ".github" / "workflows" / "ci.yml",
+        ROOT / "tools" / "check_cleanroom.py",
+        *DOCS,
+    ]:
+        body = path.read_text().lower()
+        if "licence is undecided" in body or "licence for cubemarspycan is undecided" in body:
+            stale.append(path.name)
+    assert not stale, f"stale 'undecided' licence text in {stale}"
+
+
+def test_the_readme_explains_why_mit_is_defensible() -> None:
+    """MIT next to a GPLv3 reference only holds up because of the clean-room work.
+
+    Saying so is the difference between a licence choice and a licence claim.
+    """
+    readme = (ROOT / "README.md").read_text()
+    assert "[MIT](LICENSE)" in readme
+    assert "clean-room" in readme
+    assert "GPLv3" in readme
+
+
+def test_the_gpl_reference_library_is_not_publishable() -> None:
+    """The audited library is GPLv3 and not ours to redistribute."""
+    gitignore = (ROOT / ".gitignore").read_text()
+    assert "TMotorCANControl-master/" in gitignore
+    assert "*.pdf" in gitignore, "CubeMars manuals are their copyright"

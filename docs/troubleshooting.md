@@ -40,6 +40,16 @@ Normal. The latch holds only the newest frame, so if several arrived between two
 than the motor's reply rate, not that frames were lost. Compare `seq` deltas against
 `bus.transport.stats.rx` if you want the real reception count.
 
+## The motor lurches right after `zero_here()`
+
+Zeroing moves the coordinate system, but it does not clear your staged command. If a
+position setpoint was in flight, it is now expressed in the old frame and the motor will
+drive back toward where it just came from. Call `motor.hold()` before zeroing.
+
+Found while writing `examples/homing.py`: after homing to a stop and backing off 0.05 rad,
+the zero appeared to read 0.0498 rad instead of 0 - the motor was being commanded back to
+the pre-zero target.
+
 ## `StaleFeedbackError` right after `zero_here()`
 
 The driver stops replying for about a second while it zeroes. If you wait with a bare

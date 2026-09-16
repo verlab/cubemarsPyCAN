@@ -514,3 +514,36 @@ def test_dropped_replies_do_not_corrupt_anything() -> None:
     finally:
         bus.close()
         sim.close()
+
+
+def test_a_plant_with_hard_stops_pins_at_them() -> None:
+    """Homing routines look for torque at the ceiling with velocity at zero."""
+    driver = SimMitDriver(SPEC, motor_id=1)
+    driver.plant.limit_hi = 0.5
+    sink = MitSink()
+    bus, sim = sim_bus(mit_drivers=[driver])
+    try:
+        bus.register(sink)
+        bus.send(mit.enter_mit_frame(1))
+        sim.advance(0.0)
+        for _ in range(200):
+            command(bus, velocity_radps=2.0, kd=1.0)
+            sim.advance(0.005)
+        time.sleep(SETTLE)
+        assert driver.plant.position == pytest.approx(0.5, abs=1e-6)
+        assert driver.plant.velocity <= 0.0, "the stop absorbs the motion"
+        assert driver.plant.at_limit
+        assert abs(sink.states[-1].torque_nm) > 0.1, "still pushing against it"
+    finally:
+        bus.close()
+        sim.close()
+
+
+def test_zeroing_carries_travel_limits_with_the_origin() -> None:
+    from cubemarspycan.sim import Plant
+
+    plant = Plant(position=1.0, limit_hi=1.5, limit_lo=-0.5)
+    plant.zero_here()
+    assert plant.position == 0.0
+    assert plant.limit_hi == pytest.approx(0.5)
+    assert plant.limit_lo == pytest.approx(-1.5)

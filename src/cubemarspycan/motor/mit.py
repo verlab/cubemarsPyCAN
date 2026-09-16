@@ -297,6 +297,14 @@ class MitMotor(MotorEndpoint[MitState]):
         A plain ``time.sleep(1.5)`` here sends nothing, so no feedback arrives, and the
         next ``update()`` raises :class:`~cubemarspycan.errors.StaleFeedbackError` -
         correctly, but confusingly.
+
+        **Drop the gains first if a position command is staged.** Zeroing moves the
+        coordinate system; a setpoint staged in the old frame becomes an instruction to
+        drive back to where the motor just came from::
+
+            m.hold()          # or command(kp=0, kd=0)
+            m.zero_here()
+            m.settle(1.5)
         """
         self.bus.send(codec.zero_position_frame(self.motor_id))
         self._turns.reset()

@@ -70,6 +70,9 @@ guess whether your firmware wraps or saturates.
 
 ## Licence
 
-TMotorCANControl is GPLv3. This library is written clean-room from the manual and the
-CubeMars datasheets, with no code taken from it, so its licence stays open.
-`tools/check_cleanroom.py` exists to check that before a release.
+TMotorCANControl is GPLv3. This library is **MIT**, which is only defensible because it is
+written clean-room from the manual and the CubeMars datasheets with no code taken from it.
+`tools/check_cleanroom.py` compares token shingles against the reference and runs in CI.
+
+Practically: you can vendor, fork or ship cubemarsPyCAN inside a closed product. You could
+not do that with the library it replaces.

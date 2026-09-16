@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 import statistics
 
-from _common import base_parser, open_rig, settle_time, wait_for_control
+from _common import base_parser, open_rig, settle, wait_for_control
 
 from cubemarspycan import MitMotor, SafetyPolicy
 
@@ -46,7 +46,7 @@ def main() -> None:
         )
         with motor.control(wait_s=wait_for_control(rig)):
             motor.zero_here()
-            motor.settle(settle_time(rig))
+            settle(rig, motor)
 
             modes = [False] if args.no_feedforward else [False, True]
             results = {}

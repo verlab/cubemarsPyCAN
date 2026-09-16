@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check that no source here overlaps textually with the GPLv3 reference library.
 
-The licence for cubemarsPyCAN is undecided, so the implementation is written clean-room
-from the manual and the CubeMars datasheets. Some resemblance is unavoidable and harmless:
+cubemarsPyCAN is MIT licensed; the reference library is GPLv3. That only holds up because
+the implementation is clean-room from the manual and the CubeMars datasheets, so this
+checks that it stays that way. Some resemblance is unavoidable and harmless:
 the MIT bit layout is dictated by the protocol and there is only one way to write
 ``D3 = (v & 0xF) << 4 | kp >> 8``. The real risk is copied *structure* - class shapes,
 dict layouts, docstrings - so this compares token shingles rather than lines.
