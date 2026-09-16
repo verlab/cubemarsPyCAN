@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cubemarspycan"
+version = "0.1.0.dev0"
+description = "Correct, tested CAN control for CubeMars AK-series actuators (MIT and servo modes)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Hector Azpurua" }]
+keywords = ["cubemars", "tmotor", "ak40-10", "can", "robotics", "actuator", "motor"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+
+# Runtime dependency is python-can ONLY.
+# NumPy is deliberately absent: its 2.0 out-of-range integer behaviour is what broke
+# the decoder in TMotorCANControl (see PLAN.md 2.2).
+dependencies = ["python-can>=4.0.0"]
+
+[project.optional-dependencies]
+slcan = ["pyserial>=3.5"]
+gs-usb = ["gs-usb>=0.3.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+cubemars = "cubemarspycan.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/h3ct0r/cubemarsPyCAN"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cubemarspycan"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+# TMotorCANControl-master/ is the GPLv3 reference library, kept read-only for comparison
+# during development. It is not ours to lint and will be removed before release.
+extend-exclude = ["TMotorCANControl-master", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "PTH", "RET"]
+ignore = ["RUF002", "RUF003"]  # ambiguous unicode in docstrings (we use degree/mu signs)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+exclude = ["TMotorCANControl-master", "\\.venv"]
+
+[[tool.mypy.overrides]]
+module = ["can.*", "serial.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "hardware: needs a real motor on a real bus (never runs in CI)",
+    "socketcan: needs a Linux socketcan/vcan interface",
+]
+addopts = "-m 'not hardware' --strict-markers"
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "\\.\\.\\."]

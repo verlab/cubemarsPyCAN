@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+._*
+
+# --- deliberately not published -------------------------------------------------
+# The reference library we audited. It is GPLv3 and belongs to its authors; this
+# project is clean-room and must not redistribute it. Keep it locally while
+# tools/check_cleanroom.py is still useful, then delete it.
+TMotorCANControl-master/
+
+# CubeMars manuals and datasheets are their copyright. Cite them, do not republish.
+*.pdf

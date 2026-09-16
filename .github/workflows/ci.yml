@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Type check
+        run: mypy
+      - name: Tests
+        run: pytest -q --cov=cubemarspycan --cov-report=term-missing
+
+      # The licence is undecided, so the implementation stays clean-room from the manual.
+      # This fails on any long run of tokens shared with the GPLv3 reference library.
+      - name: Clean-room check
+        run: python tools/check_cleanroom.py
+
+  # The production target is Linux socketcan, and python-can's `virtual` backend does not
+  # exercise any of the socketcan-specific paths (kernel filters, sysfs bitrate read-back,
+  # ENOBUFS). vcan gives us a real socketcan interface in CI with no hardware attached.
+  socketcan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bring up a virtual CAN interface
+        run: |
+          sudo modprobe vcan
+          sudo ip link add dev vcan0 type vcan
+          sudo ip link set up vcan0
+          ip -details link show vcan0
+      - run: pip install -e ".[dev]"
+      - name: Tests against socketcan:vcan0
+        env:
+          CUBEMARS_TEST_CHANNEL: "socketcan:vcan0"
+        run: pytest -q -m "not hardware"
