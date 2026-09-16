@@ -34,6 +34,7 @@ from .transport.can_bus import (
     CanTransport,
     read_socketcan_bitrate,
     read_socketcan_state,
+    socketcan_is_up,
 )
 
 DEFAULT_URL = "socketcan:can0" if platform.system() == "Linux" else "slcan:/dev/ttyUSB0@1M"
@@ -387,8 +388,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ):
             found = True
             bitrate = read_socketcan_bitrate(iface.name)
-            operstate = iface / "operstate"
-            link = operstate.read_text().strip() if operstate.exists() else "?"
+            # Not operstate: a vcan interface reports "unknown" however healthy it is.
+            link = "up" if socketcan_is_up(iface.name) else "down"
             note = f"{bitrate} bit/s" if bitrate else "no bitrate (vcan, or never configured)"
             if bitrate not in (None, DEFAULT_BITRATE):
                 note += "   <- AK drivers expect 1 Mbit/s"

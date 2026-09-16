@@ -293,15 +293,8 @@ def _open_socketcan(channel: str, bitrate: int) -> can.BusABC:
         ) from exc
 
 
-def _link_info(interface: str) -> dict[str, Any]:
-    """CAN link details from ``ip -details -json link show``.
-
-    sysfs exposes ``can_bittiming`` on some kernel and driver combinations but not all -
-    a gs_usb adapter on Linux 6.x/7.x has no such directory - so sysfs alone silently
-    reports "unknown" for a perfectly healthy interface. ``ip`` reports it everywhere.
-
-    Read-only, no privileges. Any failure means "unknown", never an exception.
-    """
+def _link_entry(interface: str) -> dict[str, Any]:
+    """The whole ``ip -details -json link show`` entry for ``interface``, or ``{}``."""
     try:
         result = subprocess.run(
             ["ip", "-details", "-json", "link", "show", interface],
@@ -318,9 +311,21 @@ def _link_info(interface: str) -> dict[str, Any]:
         entries = json.loads(result.stdout)
     except json.JSONDecodeError:
         return {}
-    if not entries:
+    if not entries or not isinstance(entries[0], dict):
         return {}
-    info_data = entries[0].get("linkinfo", {}).get("info_data", {})
+    return entries[0]
+
+
+def _link_info(interface: str) -> dict[str, Any]:
+    """CAN-specific link details from ``ip -details -json link show``.
+
+    sysfs exposes ``can_bittiming`` on some kernel and driver combinations but not all - a
+    gs_usb adapter on Linux 6.x/7.x has no such directory - so sysfs alone silently
+    reports "unknown" for a perfectly healthy interface. ``ip`` reports it everywhere.
+
+    Read-only, no privileges. Any failure means "unknown", never an exception.
+    """
+    info_data = _link_entry(interface).get("linkinfo", {}).get("info_data", {})
     return info_data if isinstance(info_data, dict) else {}
 
 
@@ -328,7 +333,8 @@ def read_socketcan_bitrate(interface: str) -> int | None:
     """The kernel's configured bitrate, or ``None`` if it cannot be determined.
 
     python-can cannot set a socketcan bitrate - ``ip link`` does - so the only honest
-    check is to read back what the interface is actually running at.
+    check is to read back what the interface is actually running at. A virtual interface
+    has no bit timing at all, and returns ``None``.
     """
     path = Path(f"/sys/class/net/{interface}/can_bittiming/bitrate")
     try:
@@ -339,6 +345,27 @@ def read_socketcan_bitrate(interface: str) -> int | None:
         return value
     bitrate = _link_info(interface).get("bittiming", {}).get("bitrate")
     return int(bitrate) if isinstance(bitrate, int) and bitrate else None
+
+
+def socketcan_link_flags(interface: str) -> list[str]:
+    """Link flags for ``interface``, e.g. ``["NOARP", "UP", "LOWER_UP"]``.
+
+    Empty if the interface does not exist or cannot be read. Never raises.
+    """
+    entry = _link_entry(interface)
+    flags = entry.get("flags", [])
+    return [str(f) for f in flags] if isinstance(flags, list) else []
+
+
+def socketcan_is_up(interface: str) -> bool:
+    """Whether ``interface`` is administratively up.
+
+    Reads the ``UP`` **flag**, not ``operstate``. A virtual CAN interface has no carrier,
+    so it reports ``state UNKNOWN`` however healthy it is, while real CAN hardware reports
+    ``state UP``. Anything that keys off operstate will call a working vcan interface
+    down.
+    """
+    return "UP" in socketcan_link_flags(interface)
 
 
 def read_socketcan_state(interface: str) -> str | None:

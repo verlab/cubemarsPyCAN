@@ -22,8 +22,6 @@ gs_usb adapter whose missing ``/sys/class/net/can0/can_bittiming`` made ``doctor
 from __future__ import annotations
 
 import os
-import platform
-import subprocess
 import time
 from collections.abc import Iterator
 
@@ -33,32 +31,17 @@ from cubemarspycan import CanTransport, MitMotor, MotorBus, get_spec
 from cubemarspycan.codec import mit
 from cubemarspycan.frame import Frame
 from cubemarspycan.transport import can_bus
+from cubemarspycan.transport.can_bus import socketcan_is_up
 
 SPEC = get_spec("AK40-10")
 CHANNEL_URL = os.environ.get("CUBEMARS_TEST_CHANNEL", "socketcan:vcan0")
 INTERFACE = CHANNEL_URL.split(":", 1)[1].split("@")[0]
 
 
-def _interface_is_up(name: str) -> bool:
-    if platform.system() != "Linux":
-        return False
-    try:
-        result = subprocess.run(
-            ["ip", "link", "show", name],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0 and "state UP" in result.stdout
-
-
 pytestmark = [
     pytest.mark.socketcan,
     pytest.mark.skipif(
-        not _interface_is_up(INTERFACE),
+        not socketcan_is_up(INTERFACE),
         reason=f"no socketcan interface {INTERFACE!r} is up "
         f"(sudo ip link add dev {INTERFACE} type vcan && sudo ip link set up {INTERFACE})",
     ),

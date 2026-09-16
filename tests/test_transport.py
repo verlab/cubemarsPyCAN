@@ -332,3 +332,58 @@ def test_link_info_survives_garbage_output(monkeypatch: pytest.MonkeyPatch) -> N
         lambda *a, **k: SimpleNamespace(returncode=0, stdout="not json", stderr=""),
     )
     assert can_bus._link_info("can0") == {}
+
+
+# --- link flags: the operstate trap --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        (["NOARP", "UP", "LOWER_UP"], True),  # vcan: operstate reads UNKNOWN
+        (["NOARP", "UP", "LOWER_UP", "ECHO"], True),  # a real gs_usb adapter
+        (["NOARP"], False),  # created but never brought up
+        ([], False),  # no such interface
+    ],
+)
+def test_up_is_decided_by_the_flag_not_the_operstate(
+    flags: list[str], expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A virtual CAN interface has no carrier, so it reports `state UNKNOWN` however
+    healthy it is; real CAN hardware reports `state UP`.
+
+    Keying off operstate therefore calls a working vcan interface down. It silently
+    skipped the whole socketcan suite on CI even after vcan0 came up correctly, and only
+    showed up because that job fails when it selects nothing that passes.
+    """
+    from cubemarspycan.transport import can_bus
+
+    monkeypatch.setattr(can_bus, "socketcan_link_flags", lambda _: flags)
+    assert can_bus.socketcan_is_up("vcan0") is expected
+
+
+def test_link_flags_are_empty_for_a_missing_interface() -> None:
+    from cubemarspycan.transport import can_bus
+
+    assert can_bus.socketcan_link_flags("definitely-not-an-interface") == []
+    assert not can_bus.socketcan_is_up("definitely-not-an-interface")
+
+
+def test_link_entry_survives_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    from types import SimpleNamespace
+
+    from cubemarspycan.transport import can_bus
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout="[]", stderr=""),
+    )
+    assert can_bus._link_entry("can0") == {}
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout='["not a dict"]', stderr=""),
+    )
+    assert can_bus._link_entry("can0") == {}
