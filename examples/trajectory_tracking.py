@@ -60,13 +60,19 @@ def main() -> None:
     peak_v = args.amplitude * 2 * math.pi * args.freq
     print(f"\npeak target velocity {peak_v:.3f} rad/s, kp={args.kp:g} kd={args.kd:g}\n")
     for label, errors in results.items():
+        if not errors:
+            # A --duration shorter than one period logs nothing; median([]) raises.
+            print(f"  velocity = {label:<11} no samples (--duration too short?)")
+            continue
         ordered = sorted(errors)
         print(
             f"  velocity = {label:<11} median {statistics.median(errors) * 1000:6.2f} mrad"
             f"   p95 {ordered[int(len(ordered) * 0.95)] * 1000:6.2f}"
         )
-    if len(results) == 2:
-        ratio = statistics.median(results["zero"]) / statistics.median(results["derivative"])
+    complete = len(results) == 2 and all(results.values())
+    baseline = statistics.median(results["derivative"]) if complete else 0.0
+    if complete and baseline > 0.0:
+        ratio = statistics.median(results["zero"]) / baseline
         print(f"\n  feedforward reduced median following error {ratio:.1f}x")
         print(
             f"  predicted error with velocity=0: kd*v/kp = "

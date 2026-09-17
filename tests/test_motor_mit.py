@@ -312,6 +312,23 @@ def test_a_frame_after_zero_here_ends_the_grace_window_early(rig: Rig) -> None:
             rig.motor.update()
 
 
+def test_settle_keeps_commanding_and_returns_the_last_state(rig: Rig) -> None:
+    """settle() had no test at all, though it is the documented remedy for the bench's
+    most confusing failure and the only thing standing between `jog --zero` and a
+    StaleFeedbackError.
+
+    It lives on MotorEndpoint now: MitMotor and ServoMotor carried byte-identical copies,
+    and the servo one had no callers anywhere.
+    """
+    with rig.motor.control(wait_s=0.0):
+        rig.run(5, kp=1.0)
+        before = rig.tx_count()
+        state = rig.motor.settle(0.05, period=0.005)
+
+    assert state is not None, "settle returns the last state it saw"
+    assert rig.tx_count() > before, "settle must keep the link alive, not just sleep"
+
+
 # --- faults -------------------------------------------------------------------------
 
 

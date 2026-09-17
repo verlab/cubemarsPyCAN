@@ -68,9 +68,11 @@ Until you have done this, multi-turn unwrapping **refuses** rather than guessing
 
 Easier than doing it by hand: drive past the limit under power at a few rad/s.
 
-> **Note:** `zero_here()` stops the driver replying for about a second. Wait with
-> `m.settle(1.5)`, not `time.sleep(1.5)` — a bare sleep sends nothing, so no feedback
-> arrives and the next `update()` correctly raises `StaleFeedbackError`.
+> **Note:** `zero_here()` stops the driver replying for about a second. It opens a grace
+> window for exactly that, so the wait is routine — use `m.settle(1.5)` to keep the loop
+> running through it. Note that keeping the link alive is not by itself what fixes this:
+> staleness is measured on frames *received*, so transmitting through the gap does not
+> reset it. The grace window does.
 
 ### B3 — first commanded torque, damping only
 

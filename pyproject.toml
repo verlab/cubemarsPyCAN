@@ -68,7 +68,12 @@ ignore = ["RUF002", "RUF003"]  # ambiguous unicode in docstrings (we use degree/
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-files = ["src", "tests"]
+files = ["src", "tests", "examples"]
+# examples/ is on the path so `from _common import ...` resolves the way the scripts
+# themselves run. It is checked because the two bugs it hid - a None dereference one line
+# above its own guard, and `object` parameters that accepted anything - were both type
+# errors CI could not see.
+mypy_path = "examples"
 exclude = ["TMotorCANControl-master", "\\.venv"]
 
 [[tool.mypy.overrides]]

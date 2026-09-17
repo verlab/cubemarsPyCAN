@@ -16,9 +16,23 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 from cubemarspycan import CanTransport, MotorBus, get_spec
 from cubemarspycan.spec import MotorSpec
+
+if TYPE_CHECKING:  # import cost is real at --sim startup; the type is free
+    from cubemarspycan.sim import SteppedSim
+
+
+class Updatable(Protocol):
+    """Anything ``settle`` can keep alive: a MitMotor or a ServoMotor.
+
+    Structural, so neither motor class has to know this exists. Typed rather than
+    ``object`` because ``object`` silently accepts ``settle(rig, "hello")``.
+    """
+
+    def update(self) -> object: ...
 
 
 def base_parser(description: str) -> argparse.ArgumentParser:
@@ -41,12 +55,23 @@ class Rig:
     """A bus, plus the simulator behind it when running with ``--sim``."""
 
     bus: MotorBus
-    sim: object | None
+    sim: SteppedSim | None
     spec: MotorSpec
 
     @property
     def simulated(self) -> bool:
         return self.sim is not None
+
+    def require_sim(self) -> SteppedSim:
+        """The simulator behind this rig, for examples that reach into the fake motor.
+
+        ``simulated`` is a bool, so it cannot narrow ``sim`` for a type checker. This can,
+        and it turns "someone ran this without --sim" into a sentence rather than an
+        ``AttributeError`` on ``None``.
+        """
+        if self.sim is None:
+            raise RuntimeError("this rig has no simulator; run with --sim")
+        return self.sim
 
     def ticker(self, period: float) -> Ticker:
         return Ticker(period, self.sim)
@@ -86,7 +111,7 @@ class Ticker:
     the motor move. Calling :meth:`tick` does the right thing either way.
     """
 
-    def __init__(self, period: float, sim: object | None = None) -> None:
+    def __init__(self, period: float, sim: SteppedSim | None = None) -> None:
         self.period = period
         self._sim = sim
         self._t = 0.0
@@ -112,7 +137,7 @@ class Ticker:
     def tick(self) -> None:
         self._prev_t = self._t
         if self._sim is not None:
-            self._sim.advance(self.period)  # type: ignore[attr-defined]
+            self._sim.advance(self.period)
             self._t += self.period
             return
 
@@ -170,7 +195,7 @@ _SIM_SETTLE_TICKS = 2
 _SIM_SETTLE_PERIOD = 0.005
 
 
-def settle(rig: Rig, first: object, /, *rest: object) -> None:
+def settle(rig: Rig, first: Updatable, /, *rest: Updatable) -> None:
     """Hold after ``zero_here()``, doing the right thing for hardware and for the sim.
 
     Pass **every** motor you have zeroed. A MIT driver only answers when it is commanded,
@@ -202,12 +227,12 @@ def settle(rig: Rig, first: object, /, *rest: object) -> None:
             # updating before the sim has answered it warns about absent feedback.
             ticker.tick()
             for motor in motors:
-                motor.update()  # type: ignore[attr-defined]
+                motor.update()
         return
     deadline = time.monotonic() + _HARDWARE_SETTLE_S
     while time.monotonic() < deadline:
         for motor in motors:
-            motor.update()  # type: ignore[attr-defined]
+            motor.update()
         time.sleep(0.01)
 
 

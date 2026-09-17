@@ -35,6 +35,10 @@ def main() -> None:
     parser.add_argument("--hold", type=float, default=2.5, help="seconds per speed")
     args = parser.parse_args()
 
+    if any(speed == 0.0 for speed in args.speeds):
+        # ratio = mean / target. Zero is not a speed to hold, it is a stop.
+        parser.error("--speeds must all be non-zero; use torque_control.py to hold still")
+
     with open_rig(args) as rig:
         spec = rig.spec
         motor = MitMotor(
@@ -64,6 +68,11 @@ def main() -> None:
                     if ticker.t > args.hold * 0.6:  # steady state only
                         samples.append(state.velocity_radps)
                     ticker.tick()
+                if not samples:
+                    # `ticker.t > args.hold * 0.6` never fired: the hold is shorter than
+                    # a couple of periods. statistics.mean([]) raises StatisticsError.
+                    print(f"  commanded {target:+6.2f} rad/s -> no steady-state samples")
+                    continue
                 mean = statistics.mean(samples)
                 ratios.append(mean / target)
                 print(
@@ -80,6 +89,9 @@ def main() -> None:
                     down.tick()
             motor.hold()
 
+    if not ratios:
+        print("\nno speed held long enough to measure; raise --hold")
+        return
     mean_ratio = statistics.mean(ratios)
     print(f"\nmean measured/commanded ratio {mean_ratio:.4f}")
     if 0.9 <= mean_ratio <= 1.1:

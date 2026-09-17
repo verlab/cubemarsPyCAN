@@ -55,7 +55,7 @@ def main() -> None:
         )
 
         if args.sim and args.inject:
-            rig.sim.mit_drivers[0].fault_code = 2  # type: ignore[attr-defined]
+            rig.require_sim().mit_drivers[0].fault_code = 2
             print("simulated driver will report fault 2 (over-current)\n")
 
         try:

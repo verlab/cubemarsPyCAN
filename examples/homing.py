@@ -51,7 +51,7 @@ def main() -> None:
     with open_rig(args) as rig:
         if rig.simulated:
             # Give the fake mechanism a stop to find, so --sim shows the real behaviour.
-            plant = rig.sim.mit_drivers[0].plant  # type: ignore[attr-defined]
+            plant = rig.require_sim().mit_drivers[0].plant
             stop = 1.2 * args.direction
             if args.direction > 0:
                 plant.limit_hi = stop

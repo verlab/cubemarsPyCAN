@@ -254,21 +254,6 @@ class ServoMotor(MotorEndpoint[ServoStatus]):
 
     # --- conversions ----------------------------------------------------------------
 
-    def settle(self, seconds: float, period: float = 0.01) -> ServoStatus | None:
-        """Hold the current setpoint for ``seconds``, keeping feedback flowing.
-
-        Use after :meth:`set_origin`. A bare ``time.sleep`` sends nothing and can trip
-        the staleness detector.
-        """
-        import time as _time
-
-        deadline = _time.monotonic() + seconds
-        status: ServoStatus | None = None
-        while _time.monotonic() < deadline:
-            status = self.update()
-            _time.sleep(period)
-        return status
-
     def erpm_for(self, output_radps: float) -> float:
         """Output rad/s to electrical RPM. Refuses if pole pairs or gear ratio are unknown."""
         return self.spec.radps_output_to_erpm(output_radps)

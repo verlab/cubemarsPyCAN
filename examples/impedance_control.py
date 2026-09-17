@@ -18,14 +18,14 @@ from _common import base_parser, open_rig, settle, wait_for_control
 
 from cubemarspycan import MitMotor, SafetyPolicy
 
-# (label, kp, kd, seconds) - held at the same target throughout, so the only thing
+# (label, kp, kd) - held at the same target throughout, so the only thing
 # changing is how strongly the motor resists being moved off it.
 STAGES = [
-    ("free          ", 0.0, 0.0, 4.0),
-    ("damping only  ", 0.0, 1.0, 4.0),
-    ("soft spring   ", 5.0, 0.3, 4.0),
-    ("medium spring ", 20.0, 0.5, 4.0),
-    ("stiff spring  ", 60.0, 1.0, 4.0),
+    ("free          ", 0.0, 0.0),
+    ("damping only  ", 0.0, 1.0),
+    ("soft spring   ", 5.0, 0.3),
+    ("medium spring ", 20.0, 0.5),
+    ("stiff spring  ", 60.0, 1.0),
 ]
 
 
@@ -52,7 +52,7 @@ def main() -> None:
             motor.zero_here()
             settle(rig, motor)
 
-            for label, kp, kd, _default in STAGES:
+            for label, kp, kd in STAGES:
                 seconds = args.stage_seconds
                 ticker = rig.ticker(args.period)
                 excursion = 0.0

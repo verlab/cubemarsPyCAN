@@ -73,6 +73,14 @@ class MotorEndpoint(Generic[StateT]):
     def on_frame(self, frame: Frame, rx_monotonic: float) -> None:  # pragma: no cover
         raise NotImplementedError
 
+    def update(self) -> StateT:  # pragma: no cover - abstract
+        """Send the staged command and return the state snapshot taken before it.
+
+        Subclasses widen this with their own optional arguments. The zero-argument form
+        is the contract the base class relies on, in :meth:`settle`.
+        """
+        raise NotImplementedError
+
     # --- lifecycle ------------------------------------------------------------------
 
     def _enter_frames(self) -> list[Frame]:  # pragma: no cover - abstract
@@ -168,6 +176,24 @@ class MotorEndpoint(Generic[StateT]):
             f"(code {event.code}). A safe-stop frame has been sent. Clear the condition, "
             f"then call motor.clear_fault() before continuing."
         )
+
+    def settle(self, seconds: float, period: float = 0.01) -> StateT | None:
+        """Hold the current command for ``seconds``, keeping feedback flowing.
+
+        Use after :meth:`MitMotor.zero_here`, or anywhere you need to wait without letting
+        the link go quiet. Returns the last state seen.
+
+        A bare ``time.sleep`` here sends nothing, so the motor stops replying and the next
+        ``update()`` raises. Note that keeping the link alive is not by itself enough when
+        the *driver* goes quiet - staleness is measured on received frames - which is what
+        :meth:`expect_silence` is for.
+        """
+        deadline = time.monotonic() + seconds
+        state: StateT | None = None
+        while time.monotonic() < deadline:
+            state = self.update()
+            time.sleep(period)
+        return state
 
     def expect_silence(self, seconds: float) -> None:
         """Tolerate missing feedback for ``seconds``, starting now.

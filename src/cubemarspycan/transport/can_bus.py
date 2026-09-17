@@ -5,10 +5,12 @@ constructed, so socketcan, slcan, gs_usb, PCAN, Kvaser and the virtual backend a
 without this module knowing about them. :meth:`CanTransport.open` is sugar over the common
 cases and is never the only path.
 
-Nothing here shells out. TMotorCANControl runs ``os.system('sudo /sbin/ip link set can0
-up ...')`` from a singleton's ``__new__``, which hard-codes the interface and the bitrate,
-requires root, only works on Linux, and leaves no seam to inject a bus - which is why none
-of its thirty defects had a test.
+Nothing here shells out to *change* anything. There is exactly one ``subprocess`` call - a
+read-only ``ip -details -json link show`` used for diagnostics, never on the data path,
+never with sudo, and tolerant of ``ip`` being absent. TMotorCANControl instead runs
+``os.system('sudo /sbin/ip link set can0 up ...')`` from a singleton's ``__new__``, which
+hard-codes the interface and the bitrate, requires root, only works on Linux, and leaves
+no seam to inject a bus - which is why none of its thirty defects had a test.
 """
 
 from __future__ import annotations

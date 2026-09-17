@@ -42,6 +42,17 @@ node, or missing termination:
            can state ERROR-PASSIVE   <- nothing is ACKing; check motor power and termination
 ```
 
+`link ?` is a third state, and it means the tool could not tell — neither
+`/sys/class/net/<iface>/flags` nor `ip` could be read. It is deliberately not reported as
+`down`: on a slim container or a BusyBox rootfs with no iproute2, calling a healthy
+interface down is how you get sent to fix something that was never broken.
+
+```
+  can0     link ?      1000000 bit/s
+```
+
+A bitrate read from sysfs beside a `?` link, as above, is exactly that case.
+
 Clear it once the cause is fixed:
 
 ```bash

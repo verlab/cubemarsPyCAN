@@ -53,7 +53,11 @@ def main() -> None:
                         torque=0.0,
                     )
                     ticker.tick()
-                assert state is not None
+                if state is None:
+                    # Not `assert`: python -O strips it, and the next line would then
+                    # raise AttributeError instead of saying what went wrong.
+                    print(f"  target {target:+.3f} -> no feedback; is --dwell too short?")
+                    continue
                 error = state.position_rad - target
                 print(
                     f"  target {target:+.3f} -> settled {state.position_rad:+.4f} rad  "

@@ -322,21 +322,6 @@ class MitMotor(MotorEndpoint[MitState]):
         self.expect_silence(grace_s)
         self._turns.reset()
 
-    def settle(self, seconds: float, period: float = 0.01) -> MitState | None:
-        """Hold the current command for ``seconds``, keeping feedback flowing.
-
-        Use after :meth:`zero_here`, or anywhere you need to wait without letting the
-        link go quiet. Returns the last state seen.
-        """
-        import time as _time
-
-        deadline = _time.monotonic() + seconds
-        state: MitState | None = None
-        while _time.monotonic() < deadline:
-            state = self.update()
-            _time.sleep(period)
-        return state
-
     @property
     def state(self) -> MitState | None:
         """The most recent state, without sending anything."""

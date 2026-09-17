@@ -42,9 +42,13 @@ than the motor's reply rate, not that frames were lost. Compare `seq` deltas aga
 
 ## The motor lurches right after `zero_here()`
 
-Zeroing moves the coordinate system, but it does not clear your staged command. If a
-position setpoint was in flight, it is now expressed in the old frame and the motor will
-drive back toward where it just came from. Call `motor.hold()` before zeroing.
+Zeroing moves the coordinate system. A position setpoint that was in flight is then
+expressed in the old frame, and the motor drives back toward where it just came from.
+
+`zero_here()` now handles this for you: it stages zero gains **and puts them on the wire**
+before moving the origin. Staging alone is not enough - `hold()` only assigns to the
+staged command, it does not transmit - which is why calling `hold()` yourself was never
+quite the fix it appeared to be.
 
 Found while writing `examples/homing.py`: after homing to a stop and backing off 0.05 rad,
 the zero appeared to read 0.0498 rad instead of 0 - the motor was being commanded back to
@@ -52,9 +56,15 @@ the pre-zero target.
 
 ## `StaleFeedbackError` right after `zero_here()`
 
-The driver stops replying for about a second while it zeroes. If you wait with a bare
-`time.sleep()`, nothing is sent, nothing comes back, and the next `update()` raises. Use
-`motor.settle(1.5)` instead, which keeps the link alive through the wait.
+The driver stops replying for about a second while it zeroes.
+
+The reason a bare `time.sleep()` fails is not that it sends nothing. Staleness is measured
+against the last frame **received**, so transmitting through the gap does not reset it
+either - `settle()` alone would raise just the same. What fixes it is that `zero_here()`
+opens an explicit grace window (`grace_s`, default 1.5 s) that tolerates the silence, and
+only the *fatal* limit is suppressed, so the staleness warning still fires and a link that
+never comes back is still visible. Use `motor.settle(1.5)` to keep the loop running
+through the window.
 
 Found on the bench, not in simulation - the simulator zeroes instantly.
 
