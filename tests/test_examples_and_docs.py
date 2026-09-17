@@ -260,3 +260,59 @@ def test_the_gpl_reference_library_is_not_publishable() -> None:
     gitignore = (ROOT / ".gitignore").read_text()
     assert "TMotorCANControl-master/" in gitignore
     assert "*.pdf" in gitignore, "CubeMars manuals are their copyright"
+
+
+def _run_example(name: str, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(ROOT / "examples" / name), "--sim", *args],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=True,
+        cwd=str(ROOT),
+    )
+
+
+def test_the_csv_example_writes_rows_that_read_back(tmp_path: pathlib.Path) -> None:
+    """Nothing read the file back, so a run that wrote a header and nothing else looked
+    exactly like a good one: returncode 0 either way."""
+    import csv
+
+    out = tmp_path / "run.csv"
+    _run_example("log_to_csv.py", ["--duration", "1", "--out", str(out)])
+    with out.open(newline="") as handle:
+        reader = csv.reader(handle)
+        header = next(reader)
+        rows = list(reader)
+
+    assert header == [
+        "t",
+        "rx_monotonic",
+        "seq",
+        "target_rad",
+        "position_rad",
+        "velocity_radps",
+        "torque_nm",
+        "temperature_c",
+        "fault_code",
+    ]
+    assert len(rows) > 100, f"only {len(rows)} rows for a 1 s run at 200 Hz"
+    assert all(len(r) == len(header) for r in rows)
+    assert float(rows[-1][0]) > 0.5, "the t column must advance across the run"
+    assert len({r[2] for r in rows}) > 1, "seq must advance: feedback actually arrived"
+
+
+def test_an_empty_run_does_not_truncate_the_previous_csv(tmp_path: pathlib.Path) -> None:
+    """The write sits in a `finally` and opened "w" unconditionally, so a 401-row run
+    followed by a 0-row run left the file with 0 rows - the successful run's data
+    destroyed by the failed one after it."""
+    out = tmp_path / "run.csv"
+    _run_example("log_to_csv.py", ["--duration", "1", "--out", str(out)])
+    good = out.read_text()
+    assert good.count("\n") > 100
+
+    # --duration 0 makes ticker.running(0.0) false on the first check, so the loop body
+    # never runs and `rows` stays empty - exactly the measured case.
+    result = _run_example("log_to_csv.py", ["--duration", "0", "--out", str(out)])
+    assert out.read_text() == good, "an empty run must leave the previous file alone"
+    assert "left as it was" in result.stderr

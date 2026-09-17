@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from cubemarspycan import SPECS, CanTransport, MotorBus, get_spec
+from cubemarspycan import CanTransport, MotorBus, get_spec
 from cubemarspycan.spec import MotorSpec
 
 
@@ -90,27 +90,51 @@ class Ticker:
         self.period = period
         self._sim = sim
         self._t = 0.0
-        self._n = 0
         self._start = time.monotonic()
+        self._deadline = self._start
         self._prev_t = -period
+        self._skipped = 0
 
     @property
     def t(self) -> float:
         """Seconds since the loop started."""
         return self._t
 
+    @property
+    def skipped(self) -> int:
+        """Ticks dropped because the loop fell more than a whole period behind.
+
+        Non-zero means the loop did not keep up. It is *reported* rather than repaid -
+        see :meth:`tick`.
+        """
+        return self._skipped
+
     def tick(self) -> None:
         self._prev_t = self._t
-        self._n += 1
         if self._sim is not None:
             self._sim.advance(self.period)  # type: ignore[attr-defined]
             self._t += self.period
-        else:
-            # Sleep to the next deadline, not for a fixed period. Sleeping `period` after
-            # a body that itself took `body` gives a real rate of 1/(period + body) - a
-            # 200 Hz loop with a 2 ms CAN send runs at ~99 Hz.
-            time.sleep(max(0.0, self._start + self._n * self.period - time.monotonic()))
-            self._t = time.monotonic() - self._start
+            return
+
+        # Sleep to the next deadline, not for a fixed period. Sleeping `period` after a
+        # body that itself took `body` gives a real rate of 1/(period + body) - a 200 Hz
+        # loop with a 2 ms CAN send runs at ~99 Hz.
+        self._deadline += self.period
+        now = time.monotonic()
+        if now < self._deadline:
+            time.sleep(self._deadline - now)
+        elif now - self._deadline >= self.period:
+            # More than a whole period lost - a GC pause, a page fault, a laptop lid.
+            # Drop the missed ticks; do not repay them. Repaying means every late
+            # iteration runs back to back with no sleep at all: measured, one 0.5 s stall
+            # left 34 of 34 following iterations sleeping ~0 ms, which on hardware is a
+            # hundred command frames burst onto a bus paced for 200 Hz. A control loop
+            # that falls behind should resume at its nominal rate, not sprint to catch up.
+            self._skipped += int((now - self._deadline) // self.period)
+            self._deadline = now
+        # Behind by less than a period: no sleep, but the deadline stays on the original
+        # grid so ordinary jitter is absorbed rather than costing a whole dropped tick.
+        self._t = time.monotonic() - self._start
 
     def running(self, duration: float) -> bool:
         return self._t < duration
@@ -135,12 +159,25 @@ def wait_for_control(rig: Rig) -> float:
     return 0.0 if rig.simulated else 1.5
 
 
-def settle(rig: Rig, *motors: object, seconds: float = 1.5) -> None:
+_HARDWARE_SETTLE_S = 1.5
+"""Wall-clock hold after ``zero_here()`` on hardware.
+
+Matched to ``MitMotor.zero_here``'s default ``grace_s=1.5`` on purpose, so the hold ends
+*with* the grace window rather than after it.
+"""
+
+_SIM_SETTLE_TICKS = 2
+_SIM_SETTLE_PERIOD = 0.005
+
+
+def settle(rig: Rig, first: object, /, *rest: object) -> None:
     """Hold after ``zero_here()``, doing the right thing for hardware and for the sim.
 
     Pass **every** motor you have zeroed. A MIT driver only answers when it is commanded,
     so a motor left out here goes unspoken-to for the whole wait and its next ``update()``
-    trips staleness.
+    trips staleness. At least one is required, positionally: ``settle(rig)`` with none
+    used to degenerate into a wall-clock spin that transmitted nothing, which is the exact
+    failure this function exists to prevent.
 
     On hardware the driver may stop replying for about a second while it zeroes.
     ``zero_here()`` opens a grace window for exactly that - staleness is measured on
@@ -151,17 +188,23 @@ def settle(rig: Rig, *motors: object, seconds: float = 1.5) -> None:
     instantly, so two ticks is enough to get a fresh frame - and deliberately no more,
     because each tick integrates the MIT torque field's half-LSB zero offset and walks the
     shaft back off the zero we just set.
+
+    There is deliberately no ``seconds`` parameter. It was silently ignored under
+    ``--sim``, and it could not have been honoured there: ``seconds / period`` ticks would
+    walk the zero off by millimetres of shaft. The two branches are different operations
+    that happen to share a name.
     """
+    motors = (first, *rest)
     if rig.simulated:
-        ticker = rig.ticker(0.005)
-        for _ in range(2):
+        ticker = rig.ticker(_SIM_SETTLE_PERIOD)
+        for _ in range(_SIM_SETTLE_TICKS):
             # Tick first: zero_here() has already put a zeroed command on the wire, and
             # updating before the sim has answered it warns about absent feedback.
             ticker.tick()
             for motor in motors:
                 motor.update()  # type: ignore[attr-defined]
         return
-    deadline = time.monotonic() + seconds
+    deadline = time.monotonic() + _HARDWARE_SETTLE_S
     while time.monotonic() < deadline:
         for motor in motors:
             motor.update()  # type: ignore[attr-defined]
@@ -169,9 +212,6 @@ def settle(rig: Rig, *motors: object, seconds: float = 1.5) -> None:
 
 
 __all__ = [
-    "SPECS",
-    "Rig",
-    "Ticker",
     "base_parser",
     "open_rig",
     "settle",

@@ -19,6 +19,7 @@ import argparse
 import csv
 import math
 import statistics
+import sys
 from pathlib import Path
 
 from _common import base_parser, open_rig, settle, wait_for_control
@@ -54,7 +55,7 @@ def main() -> None:
     try:
         _run(args, rows)
     finally:
-        _write(out, rows)
+        _flush(out, rows)
     _summarise(out, rows)
 
 
@@ -102,6 +103,28 @@ def _run(args: argparse.Namespace, rows: list[tuple[object, ...]]) -> None:
             motor.hold()
 
 
+def _flush(out: Path, rows: list[tuple[object, ...]]) -> None:
+    """Write the rows, if there are any, without ever displacing the real error.
+
+    Two rules, each of which cost a real file:
+
+    * An empty run must not truncate. ``_write`` opens "w", so a run that captured
+      nothing - a wrong ``--id``, a fault before the first ``update()`` - replaced a good
+      401-row CSV with a bare header. The run *before* a bad one is often the one worth
+      keeping.
+    * This runs from a ``finally``. An exception raised here would replace the MotorFault
+      or StaleFeedbackError that is the actual diagnosis, so a write failure is reported
+      and swallowed: the error you came for wins.
+    """
+    if not rows:
+        print(f"no rows captured; {out} left as it was", file=sys.stderr)
+        return
+    try:
+        _write(out, rows)
+    except OSError as exc:
+        print(f"could not write {len(rows)} rows to {out}: {exc}", file=sys.stderr)
+
+
 def _write(out: Path, rows: list[tuple[object, ...]]) -> None:
     with out.open("w", newline="") as handle:
         writer = csv.writer(handle)
@@ -111,8 +134,7 @@ def _write(out: Path, rows: list[tuple[object, ...]]) -> None:
 
 def _summarise(out: Path, rows: list[tuple[object, ...]]) -> None:
     if not rows:
-        print(f"wrote 0 rows to {out} (the loop never ran)")
-        return
+        return  # _flush has already said that nothing was written
     fresh = len({r[2] for r in rows})
     errors = [abs(float(r[4]) - float(r[3])) for r in rows]  # type: ignore[arg-type]
     print(f"wrote {len(rows)} rows to {out}")
