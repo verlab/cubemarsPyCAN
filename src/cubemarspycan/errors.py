@@ -4,8 +4,8 @@ Every exception in this module is raised on the **caller's** thread. Nothing in 
 receive path ever raises: a driver fault becomes a latched
 :class:`~cubemarspycan.state.FaultEvent`, and only ``update()`` turns it into control
 flow. That is the fix for the single most safety-relevant defect in TMotorCANControl,
-where a fault raised inside the python-can notifier thread never reached the control loop
-and the motor kept being commanded (PLAN.md 2.6).
+where a fault raised inside the python-can notifier thread is swallowed, never reaches the
+control loop, and the motor keeps being commanded while faulted.
 """
 
 from __future__ import annotations

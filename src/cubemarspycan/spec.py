@@ -1,7 +1,7 @@
 """The motor data model.
 
 Two ideas carry this module, and between them they retire most of the defect classes
-catalogued in PLAN.md section 2.
+found in the prior art.
 
 **1. A wire field and a physical limit are different types.**
 :class:`FieldRange` carries ``bits`` and exists to be handed to the quantiser.

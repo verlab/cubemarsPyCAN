@@ -3,8 +3,9 @@
 Importing this package pulls in ``python-can`` and nothing else. In particular it never
 imports ``pyserial``, which lives behind the ``[slcan]`` extra.
 
-See PLAN.md for the audit of the prior art this library replaces, and for the manual and
-datasheet references behind every constant in :mod:`cubemarspycan.registry`.
+Every constant carries its own provenance - the manual page, the datasheet, or the bench
+run it came from - readable through :class:`~cubemarspycan.spec.Sourced` and printed by
+``cubemars dump-spec``.
 """
 
 from __future__ import annotations

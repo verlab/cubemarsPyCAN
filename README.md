@@ -108,9 +108,8 @@ python examples/trajectory_tracking.py --url socketcan:can0 --id 1
 
 ## Why another library
 
-The existing Python libraries for these motors are wrong in ways that matter. An audit of
-the most widely used one is in [PLAN.md](PLAN.md); every finding below was reproduced
-against a virtual bus, not read off:
+The existing Python libraries for these motors are wrong in ways that matter. Every
+finding below was reproduced against a virtual bus, not read off a source listing:
 
 - Its **servo-over-CAN module does not execute** — 6 of 7 commands raise `NameError` or
   `TypeError` before a frame reaches the bus.
@@ -227,7 +226,10 @@ pytest -m socketcan
 [MIT](LICENSE).
 
 The implementation is clean-room from the *AK Series Module Driver Manual* v1.0.18 and the
-CubeMars product datasheets.
+CubeMars product datasheets. No code is taken from TMotorCANControl, which is GPLv3 —
+`tools/check_cleanroom.py` compares token shingles against it. Run it before a release,
+with the reference checked out beside the source: it is deliberately not a CI step,
+because the reference is gitignored and a CI run would compare nothing and still pass.
 
 The manual and datasheets remain CubeMars' copyright. This repository cites them by page
 and does not redistribute them.
