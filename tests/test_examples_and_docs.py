@@ -50,6 +50,7 @@ def test_every_example_is_registered_for_testing() -> None:
 
 def test_docs_are_all_present() -> None:
     assert {p.name for p in DOCS} == {
+        "adding-a-motor.md",
         "ak-2-0.md",
         "bench.md",
         "can-setup.md",

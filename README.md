@@ -180,6 +180,7 @@ pip install -e ".[docs]" && python -m sphinx -b html -W -n docs docs/_build/html
 | [docs/bench.md](docs/bench.md) | first bench session, step by step |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | what each error means and what causes it |
 | [docs/ak-2-0.md](docs/ak-2-0.md) | the protocol, and what changed in manual v1.0.18 |
+| [docs/adding-a-motor.md](docs/adding-a-motor.md) | adding a spec, and why unknown constants refuse |
 | [docs/migration.md](docs/migration.md) | moving from TMotorCANControl |
 
 ## Motors
@@ -226,10 +227,7 @@ pytest -m socketcan
 [MIT](LICENSE).
 
 The implementation is clean-room from the *AK Series Module Driver Manual* v1.0.18 and the
-CubeMars product datasheets. No code is taken from TMotorCANControl, which is GPLv3 —
-`tools/check_cleanroom.py` compares token shingles against it. Run it before a release,
-with the reference checked out beside the source: it is deliberately not a CI step,
-because the reference is gitignored and a CI run would compare nothing and still pass.
+CubeMars product datasheets.
 
 The manual and datasheets remain CubeMars' copyright. This repository cites them by page
 and does not redistribute them.

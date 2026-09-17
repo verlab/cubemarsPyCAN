@@ -26,6 +26,7 @@ measured **refuses** rather than guessing. See :class:`~cubemarspycan.spec.Sourc
    cli
    units
    ak-2-0
+   adding-a-motor
    migration
    troubleshooting
    bench
