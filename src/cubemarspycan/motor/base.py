@@ -60,6 +60,7 @@ class MotorEndpoint(Generic[StateT]):
         self._last_command_sent: float = 0.0
         self._clamp_events = 0
         self._stale_grace_until: float = 0.0
+        self._stale_grace_opened: float = 0.0
 
         bus.register(self)
         self._warn_about_the_supply_voltage()
@@ -178,16 +179,37 @@ class MotorEndpoint(Generic[StateT]):
         even though nothing is wrong.
 
         This suppresses only the *fatal* limit. The warning still fires, so a gap that
-        turns out to be permanent is still visible, and the next frame to arrive ends the
-        grace period early.
+        turns out to be permanent is still visible, and a frame received **after the
+        window opened** ends it early - see :meth:`_in_stale_grace` for why "after"
+        rather than "fresh".
         """
-        self._stale_grace_until = time.monotonic() + max(0.0, seconds)
+        now = time.monotonic()
+        self._stale_grace_opened = now
+        self._stale_grace_until = now + max(0.0, seconds)
+
+    def _in_stale_grace(self, rx_monotonic: float, now: float) -> bool:
+        """Whether a deliberate silence is still being tolerated.
+
+        Two conditions, and the second is the one that is easy to get wrong. The obvious
+        test - "stop tolerating once feedback looks fresh" - defeats the window entirely:
+        at the instant :meth:`MitMotor.zero_here` opens it, the last received frame is
+        normally ~10 ms old, so the very next ``update()`` would close the window before
+        the driver has even gone quiet, which is the whole case it exists for.
+
+        What ends it early is a frame received *after* it opened. That is proof the link
+        came back, so any gap from there on is a real one and must still be fatal on
+        schedule.
+        """
+        return now < self._stale_grace_until and rx_monotonic <= self._stale_grace_opened
 
     def _check_staleness(self, rx_monotonic: float, seq: int) -> None:
         if seq == 0:
             return
-        age = time.monotonic() - rx_monotonic
-        if age > self.policy.stale_fatal_s and time.monotonic() >= self._stale_grace_until:
+        # One `now` for both the age and the grace comparison: sampling the clock twice
+        # measured them against subtly different instants.
+        now = time.monotonic()
+        age = now - rx_monotonic
+        if age > self.policy.stale_fatal_s and not self._in_stale_grace(rx_monotonic, now):
             self._emergency_stop()
             raise StaleFeedbackError(
                 f"{self.spec.name} id {self.motor_id}: no feedback for {age:.3f} s "

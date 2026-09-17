@@ -293,8 +293,25 @@ def _open_socketcan(channel: str, bitrate: int) -> can.BusABC:
         ) from exc
 
 
-def _link_entry(interface: str) -> dict[str, Any]:
-    """The whole ``ip -details -json link show`` entry for ``interface``, or ``{}``."""
+@dataclass(frozen=True, slots=True)
+class _LinkProbe:
+    """What one ``ip -details -json link show`` could tell us.
+
+    Three outcomes, not two. ``answered`` is True whenever ``ip`` itself gave a verdict we
+    can trust - **including** "no such device", which is a negative answer rather than a
+    failure to ask. Collapsing that into the same empty result as "iproute2 is not
+    installed" is why a definitively absent interface used to report "cannot tell".
+    """
+
+    entry: dict[str, Any] = field(default_factory=dict)
+    answered: bool = False
+
+
+def _link_probe(interface: str) -> _LinkProbe:
+    """Run ``ip -details -json link show <interface>`` once, keeping the outcomes apart.
+
+    Read-only, unprivileged, never raises.
+    """
     try:
         result = subprocess.run(
             ["ip", "-details", "-json", "link", "show", interface],
@@ -304,16 +321,103 @@ def _link_entry(interface: str) -> dict[str, Any]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return {}
+        return _LinkProbe()  # no iproute2, or it hung: we could not ask
     if result.returncode != 0:
-        return {}
+        return _LinkProbe(answered=True)  # `ip` ran and said: no such interface
     try:
         entries = json.loads(result.stdout)
     except json.JSONDecodeError:
+        return _LinkProbe()  # unparseable: do not guess
+    if not isinstance(entries, list):
+        return _LinkProbe()
+    if not entries:
+        return _LinkProbe(answered=True)  # ran, matched nothing
+    if not isinstance(entries[0], dict):
+        return _LinkProbe()
+    return _LinkProbe(entries[0], answered=True)
+
+
+def _link_entry(interface: str) -> dict[str, Any]:
+    """The whole ``ip -details -json link show`` entry for ``interface``, or ``{}``.
+
+    Always a dict, never ``None``: :func:`_link_info` and :func:`socketcan_link_flags`
+    call ``.get`` on the result, and an ``AttributeError`` out of the diagnostics path is
+    exactly the bug this shape exists to make unrepresentable.
+    """
+    return _link_probe(interface).entry
+
+
+def _flags_of(entry: dict[str, Any]) -> list[str]:
+    flags = entry.get("flags", [])
+    return [str(f) for f in flags] if isinstance(flags, list) else []
+
+
+def _info_data_of(entry: dict[str, Any]) -> dict[str, Any]:
+    """The CAN ``info_data`` block of a link entry, or ``{}``.
+
+    Every level is isinstance-checked. ``ip`` emits ``null`` for an absent sub-object, and
+    ``{}.get("linkinfo", {}).get(...)`` raises ``AttributeError`` on that - on the
+    diagnostics path, where an exception is worth less than a shrug.
+    """
+    linkinfo = entry.get("linkinfo")
+    if not isinstance(linkinfo, dict):
         return {}
-    if not entries or not isinstance(entries[0], dict):
-        return {}
-    return entries[0]
+    info_data = linkinfo.get("info_data")
+    return info_data if isinstance(info_data, dict) else {}
+
+
+def _bitrate_of(info_data: dict[str, Any]) -> int | None:
+    bittiming = info_data.get("bittiming")
+    if not isinstance(bittiming, dict):
+        return None
+    bitrate = bittiming.get("bitrate")
+    return int(bitrate) if isinstance(bitrate, int) and bitrate else None
+
+
+def _sysfs_bitrate(interface: str) -> int | None:
+    try:
+        value = int(Path(f"/sys/class/net/{interface}/can_bittiming/bitrate").read_text())
+    except (OSError, ValueError):
+        return None
+    return value or None
+
+
+def _sysfs_up(interface: str) -> bool | None:
+    """IFF_UP from sysfs, or ``None`` when sysfs cannot answer. Needs no external binary."""
+    try:
+        raw = Path(f"/sys/class/net/{interface}/flags").read_text().strip()
+        return bool(int(raw, 16) & 0x1)  # IFF_UP
+    except (OSError, ValueError):
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class LinkStatus:
+    """Everything ``doctor`` reports about one interface, from a single ``ip`` call."""
+
+    up: bool | None
+    bitrate: int | None
+    state: str | None
+
+
+def read_link_status(interface: str) -> LinkStatus:
+    """All three link facts from **one** ``ip`` invocation.
+
+    The three single-fact readers below each run their own probe, which is right for
+    standalone use and wasteful in a loop: ``doctor`` was forking ``ip`` up to three times
+    per interface for three keys of one JSON object, multiplying the 2 s timeout by three.
+    """
+    probe = _link_probe(interface)
+    info_data = _info_data_of(probe.entry)
+    up = _sysfs_up(interface)
+    if up is None:
+        up = ("UP" in _flags_of(probe.entry)) if probe.answered else None
+    state = info_data.get("state")
+    return LinkStatus(
+        up=up,
+        bitrate=_sysfs_bitrate(interface) or _bitrate_of(info_data),
+        state=state if isinstance(state, str) else None,
+    )
 
 
 def _link_info(interface: str) -> dict[str, Any]:
@@ -325,11 +429,7 @@ def _link_info(interface: str) -> dict[str, Any]:
 
     Read-only, no privileges. Any failure means "unknown", never an exception.
     """
-    linkinfo = _link_entry(interface).get("linkinfo")
-    if not isinstance(linkinfo, dict):
-        return {}
-    info_data = linkinfo.get("info_data")
-    return info_data if isinstance(info_data, dict) else {}
+    return _info_data_of(_link_entry(interface))
 
 
 def read_socketcan_bitrate(interface: str) -> int | None:
@@ -339,15 +439,7 @@ def read_socketcan_bitrate(interface: str) -> int | None:
     check is to read back what the interface is actually running at. A virtual interface
     has no bit timing at all, and returns ``None``.
     """
-    path = Path(f"/sys/class/net/{interface}/can_bittiming/bitrate")
-    try:
-        value = int(path.read_text().strip())
-    except (OSError, ValueError):
-        value = 0
-    if value:
-        return value
-    bitrate = _link_info(interface).get("bittiming", {}).get("bitrate")
-    return int(bitrate) if isinstance(bitrate, int) and bitrate else None
+    return _sysfs_bitrate(interface) or _bitrate_of(_link_info(interface))
 
 
 def socketcan_link_flags(interface: str) -> list[str]:
@@ -355,9 +447,7 @@ def socketcan_link_flags(interface: str) -> list[str]:
 
     Empty if the interface does not exist or cannot be read. Never raises.
     """
-    entry = _link_entry(interface)
-    flags = entry.get("flags", [])
-    return [str(f) for f in flags] if isinstance(flags, list) else []
+    return _flags_of(_link_entry(interface))
 
 
 def socketcan_is_up(interface: str) -> bool | None:
@@ -368,18 +458,16 @@ def socketcan_is_up(interface: str) -> bool | None:
     ``state UP``. Anything that keys off operstate will call a working vcan interface
     down.
 
-    sysfs is tried first and ``ip`` only as a fallback, so a host without iproute2 - a
-    slim container, a BusyBox rootfs - still gets a real answer rather than a confident
-    wrong one. When neither source can be read this returns ``None``: not knowing is a
-    third outcome, and reporting it as "down" is how a healthy interface gets blamed.
+    ``False`` also covers "there is no such interface". A definitive absence is an answer;
+    reporting it as "cannot tell" hides a typo'd interface name behind a shrug.
+
+    ``None`` is returned only when neither sysfs nor ``ip`` could be consulted at all - no
+    ``/sys``, no iproute2, a slim container, a BusyBox rootfs, macOS. Reporting *that* as
+    "down" is how a healthy interface gets blamed, which is the failure this replaced.
+
+    sysfs is tried first so a host without iproute2 still gets a real answer.
     """
-    try:
-        raw = Path(f"/sys/class/net/{interface}/flags").read_text().strip()
-        return bool(int(raw, 16) & 0x1)  # IFF_UP
-    except (OSError, ValueError):
-        pass
-    flags = socketcan_link_flags(interface)
-    return "UP" in flags if flags else None
+    return read_link_status(interface).up
 
 
 def read_socketcan_state(interface: str) -> str | None:

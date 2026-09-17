@@ -51,6 +51,10 @@ class Rig:
     def payloads(self) -> list[bytes]:
         return [f.data for f in self.sim.received]
 
+    def tx_count(self) -> int:
+        self.sim.pump()
+        return len(self.sim.received)
+
 
 def make_rig(**kwargs: object) -> Iterator[Rig]:
     driver_kwargs = {k[7:]: v for k, v in kwargs.items() if k.startswith("driver_")}
@@ -233,6 +237,11 @@ def test_zero_here_tolerates_the_driver_going_quiet(rig: Rig) -> None:
     """
     with rig.motor.control(wait_s=0.0):
         rig.run(20, kp=20.0, kd=0.5, position=0.2)
+        # Let the last reply land before the window opens. rx_monotonic is stamped
+        # by the notifier thread, and advance() yields only ~300 us, so a busy
+        # runner can stamp it after - which correctly declines the grace, and would
+        # make this test flake rather than fail honestly.
+        time.sleep(SETTLE)
         rig.motor.zero_here(grace_s=5.0)
         rig.sim.freeze()  # the driver answers nothing at all from here on
         time.sleep(rig.motor.policy.stale_fatal_s + 0.05)
@@ -243,9 +252,62 @@ def test_the_grace_window_expires_rather_than_masking_a_dead_link(rig: Rig) -> N
     """A grace window that never ended would be worse than the bug it fixes."""
     with rig.motor.control(wait_s=0.0):
         rig.run(20, kp=20.0, kd=0.5, position=0.2)
+        # Let the last reply land before the window opens. rx_monotonic is stamped
+        # by the notifier thread, and advance() yields only ~300 us, so a busy
+        # runner can stamp it after - which correctly declines the grace, and would
+        # make this test flake rather than fail honestly.
+        time.sleep(SETTLE)
         rig.motor.zero_here(grace_s=0.05)
         rig.sim.freeze()
         time.sleep(rig.motor.policy.stale_fatal_s + 0.1)
+        with pytest.raises(StaleFeedbackError):
+            rig.motor.update()
+
+
+def test_zero_here_outside_control_is_refused_and_sends_nothing(rig: Rig) -> None:
+    """zero_here() transmits, so it takes the same guard as update().
+
+    The rule: a public method that puts a frame on the wire requires control mode; one
+    that only stages (command, hold, brake) does not. A caller who forgot the `with` gets
+    NotInControlMode rather than two frames sent to a driver that was never put into MIT
+    mode, and a zero that silently did not happen.
+    """
+    rig.motor.command(kp=20.0, position=0.5)
+    before = rig.tx_count()
+
+    with pytest.raises(NotInControlMode, match="control"):
+        rig.motor.zero_here()
+
+    assert rig.tx_count() == before, "no frame may reach the wire"
+    assert rig.driver.zero_count == 0
+    assert rig.motor.staged_command == (0.5, 0.0, 20.0, 0.0, 0.0), (
+        "a refused call must not have staged a hold() either"
+    )
+
+
+def test_a_frame_after_zero_here_ends_the_grace_window_early(rig: Rig) -> None:
+    """The window covers the driver's silence, not the whole of ``grace_s``.
+
+    Once the driver has answered *after* the window opened, the link is demonstrably
+    alive, so a gap from there on is real and must still be fatal on schedule. Without
+    this, a motor that loses power one tick after zeroing goes unnoticed for the full
+    grace_s - thirty seconds here.
+
+    The trap this pins is the other way of writing the fix: clearing the window whenever
+    feedback merely looks fresh closes it immediately, because at zero_here() the last
+    frame is only ~10 ms old.
+    """
+    with rig.motor.control(wait_s=0.0):
+        rig.run(20, kp=20.0, kd=0.5, position=0.2)
+        time.sleep(SETTLE)
+        rig.motor.zero_here(grace_s=30.0)  # far longer than stale_fatal_s
+
+        rig.run(3)  # the driver answers again, well inside the window
+        time.sleep(SETTLE)
+        rig.motor.update()  # fresh feedback: must not raise
+
+        rig.sim.freeze()  # now the link really does die
+        time.sleep(rig.motor.policy.stale_fatal_s + 0.05)
         with pytest.raises(StaleFeedbackError):
             rig.motor.update()
 

@@ -303,7 +303,19 @@ class MitMotor(MotorEndpoint[MitState]):
         where the motor just came from. Staging zero gains is not enough on its own -
         :meth:`hold` only stages, it does not transmit - so the zeroed command is put on
         the wire *before* the origin moves.
+
+        This **transmits** - a zeroed command frame, then the zero-position frame - so
+        like :meth:`update` it requires control mode. Methods that only stage
+        (:meth:`command`, :meth:`hold`, :meth:`brake`) do not: that is the line. Outside
+        the ``with`` block the driver is not in MIT mode, so both frames would go to a
+        device that is not listening and the caller would never learn.
+
+        (:meth:`~cubemarspycan.motor.servo.ServoMotor.set_origin` is a deliberate
+        exception: servo mode has no documented entry handshake, so "control mode" there
+        is a library-side assertion rather than a device state, and the origin packet
+        stands alone.)
         """
+        self._require_control()
         self.hold()
         self._send_command()
         self.bus.send(codec.zero_position_frame(self.motor_id))

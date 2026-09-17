@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 
 import can
@@ -338,16 +339,24 @@ def test_link_info_survives_garbage_output(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.parametrize(
-    ("flags", "expected"),
+    ("entry", "answered", "expected"),
     [
-        (["NOARP", "UP", "LOWER_UP"], True),  # vcan: operstate reads UNKNOWN
-        (["NOARP", "UP", "LOWER_UP", "ECHO"], True),  # a real gs_usb adapter
-        (["NOARP"], False),  # created but never brought up
-        ([], None),  # nothing readable: not the same as "down"
+        # `ip` answered and the UP flag is set: up, whatever operstate says.
+        ({"flags": ["NOARP", "UP", "LOWER_UP"]}, True, True),
+        ({"flags": ["NOARP", "UP", "LOWER_UP", "ECHO"]}, True, True),
+        # `ip` answered and the flag is absent: created, never brought up.
+        ({"flags": ["NOARP"]}, True, False),
+        # `ip` answered "no such device". An absence is an answer, so False - not None.
+        ({}, True, False),
+        # `ip` could not be asked at all. The third outcome, and the only None.
+        ({}, False, None),
     ],
 )
 def test_up_is_decided_by_the_flag_not_the_operstate(
-    flags: list[str], expected: bool | None, monkeypatch: pytest.MonkeyPatch
+    entry: dict[str, object],
+    answered: bool,
+    expected: bool | None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A virtual CAN interface has no carrier, so it reports `state UNKNOWN` however
     healthy it is; real CAN hardware reports `state UP`.
@@ -355,34 +364,88 @@ def test_up_is_decided_by_the_flag_not_the_operstate(
     Keying off operstate therefore calls a working vcan interface down. It silently
     skipped the whole socketcan suite on CI even after vcan0 came up correctly, and only
     showed up because that job fails when it selects nothing that passes.
+
+    The interface named here cannot exist, deliberately. `socketcan_is_up` reads sysfs
+    first, so naming a real one ("vcan0", as this test used to) makes the monkeypatch
+    inert on any host where that interface happens to be up - the False and None rows
+    then fail, and only the accident of CI job configuration hid it.
     """
     from cubemarspycan.transport import can_bus
 
-    monkeypatch.setattr(can_bus, "socketcan_link_flags", lambda _: flags)
-    assert can_bus.socketcan_is_up("vcan0") is expected
+    monkeypatch.setattr(can_bus, "_link_probe", lambda _: can_bus._LinkProbe(entry, answered))
+    assert can_bus.socketcan_is_up("definitely-no-such-iface") is expected
 
 
-def test_link_flags_are_empty_for_a_missing_interface() -> None:
+def test_link_flags_cannot_tell_absence_from_unreadability() -> None:
+    """The flag list is the lossy view, and stays that way: use socketcan_is_up when the
+    difference matters."""
     from cubemarspycan.transport import can_bus
 
     assert can_bus.socketcan_link_flags("definitely-not-an-interface") == []
-    assert can_bus.socketcan_is_up("definitely-not-an-interface") is not True
 
 
-def test_unreadable_link_state_is_none_rather_than_down(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """ "Cannot tell" is a third answer, and collapsing it into "down" is how a healthy
-    interface gets blamed.
-
-    `doctor` used to read sysfs, which needs no external binary. Routing it through `ip`
-    means a host without iproute2 - a slim container, a BusyBox rootfs - reports every
-    working interface as down, on the same line as a bitrate it read successfully.
-    """
+@pytest.mark.skipif(shutil.which("ip") is None, reason="no iproute2 to answer with")
+def test_a_definitively_missing_interface_reads_as_down() -> None:
+    """`ip` runs, returns non-zero, and that is a real answer - not a shrug."""
     from cubemarspycan.transport import can_bus
 
-    monkeypatch.setattr(can_bus, "socketcan_link_flags", lambda _: [])
-    assert can_bus.socketcan_is_up("no-such-iface-anywhere") is None
+    assert can_bus.socketcan_is_up("definitely-not-an-interface") is False
+
+
+@pytest.mark.skipif(shutil.which("ip") is not None, reason="this host can ask `ip`")
+def test_without_iproute2_a_missing_interface_is_honestly_unknown() -> None:
+    """macOS has neither /sys nor `ip`. "Cannot tell" is the *true* answer here, and
+    asserting False would be asserting something this host cannot know."""
+    from cubemarspycan.transport import can_bus
+
+    assert can_bus.socketcan_is_up("definitely-not-an-interface") is None
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "entry", "answered"),
+    [
+        (1, "", {}, True),  # `ip`: no such device
+        (0, "[]", {}, True),  # ran, matched nothing
+        (0, "not json", {}, False),  # unparseable
+        (0, '["not a dict"]', {}, False),  # wrong shape
+        (0, "null", {}, False),  # not even a list
+        (0, '[{"flags": ["UP"]}]', {"flags": ["UP"]}, True),  # the happy path
+    ],
+)
+def test_the_probe_separates_a_negative_answer_from_no_answer(
+    returncode: int,
+    stdout: str,
+    entry: dict[str, object],
+    answered: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole tri-state lives here; everything above is a consequence."""
+    import subprocess
+    from types import SimpleNamespace
+
+    from cubemarspycan.transport import can_bus
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=returncode, stdout=stdout, stderr=""),
+    )
+    probe = can_bus._link_probe("can0")
+    assert (probe.entry, probe.answered) == (entry, answered)
+    assert can_bus._link_entry("can0") == entry, "the dict view never changes shape"
+
+
+def test_a_missing_ip_command_is_not_an_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from cubemarspycan.transport import can_bus
+
+    def no_ip(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("ip")
+
+    monkeypatch.setattr(subprocess, "run", no_ip)
+    assert can_bus._link_probe("can0").answered is False
+    assert can_bus._link_entry("can0") == {}, "still a dict, never None"
 
 
 def test_link_entry_survives_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,3 +466,51 @@ def test_link_entry_survives_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda *a, **k: SimpleNamespace(returncode=0, stdout='["not a dict"]', stderr=""),
     )
     assert can_bus._link_entry("can0") == {}
+
+
+def test_link_status_asks_ip_once_for_all_three_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`doctor` asked three helpers for three keys of one JSON object, forking `ip` three
+    times per interface and multiplying its 2 s timeout with it."""
+    import subprocess
+    from types import SimpleNamespace
+
+    from cubemarspycan.transport import can_bus
+
+    calls: list[object] = []
+    payload = (
+        '[{"flags": ["UP"], "linkinfo": {"info_data": '
+        '{"state": "ERROR-ACTIVE", "bittiming": {"bitrate": 1000000}}}}]'
+    )
+
+    def record(*args: object, **kwargs: object) -> SimpleNamespace:
+        calls.append(args[0])
+        return SimpleNamespace(returncode=0, stdout=payload, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", record)
+    status = can_bus.read_link_status("can0")
+
+    assert len(calls) == 1, f"one probe, not {len(calls)}"
+    assert (status.up, status.bitrate, status.state) == (True, 1000000, "ERROR-ACTIVE")
+
+
+def test_a_null_bittiming_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`info_data.get("bittiming", {}).get(...)` raised AttributeError on `null` - the
+    same trap as `linkinfo`, one level down."""
+    import subprocess
+    from types import SimpleNamespace
+
+    from cubemarspycan.transport import can_bus
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(
+            returncode=0,
+            stdout='[{"linkinfo": {"info_data": {"bittiming": null}}}]',
+            stderr="",
+        ),
+    )
+    assert can_bus.read_socketcan_bitrate("can0") is None
+    assert can_bus.read_link_status("can0").bitrate is None

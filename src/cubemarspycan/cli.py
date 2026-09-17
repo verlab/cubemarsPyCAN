@@ -32,9 +32,7 @@ from .spec import MotorSpec
 from .transport.can_bus import (
     DEFAULT_BITRATE,
     CanTransport,
-    read_socketcan_bitrate,
-    read_socketcan_state,
-    socketcan_is_up,
+    read_link_status,
 )
 
 DEFAULT_URL = "socketcan:can0" if platform.system() == "Linux" else "slcan:/dev/ttyUSB0@1M"
@@ -390,16 +388,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             Path("/sys/class/net").glob("vcan*")
         ):
             found = True
-            bitrate = read_socketcan_bitrate(iface.name)
+            # One probe for all three facts: asking separately forked `ip` up to three
+            # times per interface, and multiplied its 2 s timeout by three with it.
+            status = read_link_status(iface.name)
+            bitrate = status.bitrate
             # Not operstate: a vcan interface reports "unknown" however healthy it is.
-            # None means neither sysfs nor `ip` could tell us; say so rather than "down".
-            up = socketcan_is_up(iface.name)
-            link = "?" if up is None else ("up" if up else "down")
+            # None means neither sysfs nor `ip` could be consulted at all - say so rather
+            # than "down", which is how a healthy interface gets blamed.
+            link = "?" if status.up is None else ("up" if status.up else "down")
             note = f"{bitrate} bit/s" if bitrate else "no bitrate (vcan, or never configured)"
             if bitrate not in (None, DEFAULT_BITRATE):
                 note += "   <- AK drivers expect 1 Mbit/s"
             print(f"  {iface.name:<8} link {link:<6} {note}")
-            can_state = read_socketcan_state(iface.name)
+            can_state = status.state
             if can_state:
                 warn = (
                     "   <- nothing is ACKing; check motor power and termination"
