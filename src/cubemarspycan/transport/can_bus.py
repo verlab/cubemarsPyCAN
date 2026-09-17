@@ -325,7 +325,10 @@ def _link_info(interface: str) -> dict[str, Any]:
 
     Read-only, no privileges. Any failure means "unknown", never an exception.
     """
-    info_data = _link_entry(interface).get("linkinfo", {}).get("info_data", {})
+    linkinfo = _link_entry(interface).get("linkinfo")
+    if not isinstance(linkinfo, dict):
+        return {}
+    info_data = linkinfo.get("info_data")
     return info_data if isinstance(info_data, dict) else {}
 
 
@@ -357,15 +360,26 @@ def socketcan_link_flags(interface: str) -> list[str]:
     return [str(f) for f in flags] if isinstance(flags, list) else []
 
 
-def socketcan_is_up(interface: str) -> bool:
-    """Whether ``interface`` is administratively up.
+def socketcan_is_up(interface: str) -> bool | None:
+    """Whether ``interface`` is administratively up. ``None`` means "cannot tell".
 
     Reads the ``UP`` **flag**, not ``operstate``. A virtual CAN interface has no carrier,
     so it reports ``state UNKNOWN`` however healthy it is, while real CAN hardware reports
     ``state UP``. Anything that keys off operstate will call a working vcan interface
     down.
+
+    sysfs is tried first and ``ip`` only as a fallback, so a host without iproute2 - a
+    slim container, a BusyBox rootfs - still gets a real answer rather than a confident
+    wrong one. When neither source can be read this returns ``None``: not knowing is a
+    third outcome, and reporting it as "down" is how a healthy interface gets blamed.
     """
-    return "UP" in socketcan_link_flags(interface)
+    try:
+        raw = Path(f"/sys/class/net/{interface}/flags").read_text().strip()
+        return bool(int(raw, 16) & 0x1)  # IFF_UP
+    except (OSError, ValueError):
+        pass
+    flags = socketcan_link_flags(interface)
+    return "UP" in flags if flags else None
 
 
 def read_socketcan_state(interface: str) -> str | None:

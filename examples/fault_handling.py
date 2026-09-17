@@ -63,7 +63,7 @@ def main() -> None:
                 ticker = rig.ticker(args.period)
                 while ticker.running(args.duration):
                     state = motor.update(position=0.0, velocity=0.0, kp=5.0, kd=0.3, torque=0.0)
-                    if state.seq and int(ticker.t) != int(ticker.t - args.period):
+                    if state.seq and ticker.every(0.5):
                         print(f"\r  t={ticker.t:4.1f}s  {state}", end="", flush=True)
                     ticker.tick()
             print("\n\ncompleted without incident")

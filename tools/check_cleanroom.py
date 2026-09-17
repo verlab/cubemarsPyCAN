@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import io
 import pathlib
+import sys
 import tokenize
 
 DEFAULT_REFERENCE = "TMotorCANControl-master"
@@ -87,8 +88,17 @@ def main(argv: list[str] | None = None) -> int:
 
     reference_root = pathlib.Path(args.reference)
     if not reference_root.exists():
-        print(f"reference {args.reference} not present; nothing to compare against")
-        return 0
+        # Exit non-zero. Returning 0 here reads as "clean-room verified" when nothing was
+        # compared, which is how a green badge ends up standing for an unchecked property.
+        print(
+            f"reference {args.reference} not present, so nothing was compared.\n"
+            f"This is NOT a pass. Fetch the reference beside the source and re-run:\n"
+            f"  curl -sSL -o /tmp/tmotor.zip "
+            f"https://github.com/neurobionics/TMotorCANControl/archive/refs/heads/master.zip\n"
+            f"  unzip -q /tmp/tmotor.zip -d .",
+            file=sys.stderr,
+        )
+        return 2
 
     reference: dict[tuple[str, ...], str] = {}
     for path in reference_root.rglob("*.py"):

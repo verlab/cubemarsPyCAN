@@ -26,10 +26,11 @@ jobs:
       - name: Tests
         run: pytest -q --cov=cubemarspycan --cov-report=term-missing
 
-      # This project is MIT; the reference library it replaces is GPLv3. That only holds
-      # if the implementation stays clean-room, so fail on any long run of shared tokens.
-      - name: Clean-room check
-        run: python tools/check_cleanroom.py
+      # NOTE: the clean-room check is deliberately NOT run here. TMotorCANControl-master/
+      # is gitignored (it is GPLv3 and not ours to redistribute), so a CI checkout has
+      # nothing to compare against and tools/check_cleanroom.py would exit 0 having
+      # compared nothing - a green badge for an unverified property. Run it locally
+      # before a release, where the reference is actually on disk.
 
   # python-can's `virtual` backend is an in-process queue, so it exercises none of the
   # socketcan-only code: opening an interface, reading bitrate and controller state back,
@@ -75,10 +76,14 @@ jobs:
         env:
           CUBEMARS_TEST_CHANNEL: "socketcan:vcan0"
         run: |
-          # -m socketcan selects only the interface-backed tests. If they all skip, the
-          # interface did not come up the way we think it did, so fail loudly rather than
-          # reporting a green job that ran nothing.
-          pytest -q -m socketcan -p no:randomly --no-header -rs \
+          # pipefail matters: without it the pipeline returns tee's status and a failing
+          # pytest run reports green. GitHub's default shell is `bash -e`, not `-e -o
+          # pipefail`.
+          set -o pipefail
+          # `-m socketcan` overrides the `-m "not hardware"` in addopts, so re-exclude it.
+          # If everything skips, the interface did not come up the way we think it did;
+          # fail loudly rather than reporting a green job that ran nothing.
+          pytest -q -m "socketcan and not hardware" --no-header -rs \
             | tee /tmp/socketcan.log
           grep -qE "[0-9]+ passed" /tmp/socketcan.log \
             || { echo "::error::socketcan tests ran nothing"; exit 1; }

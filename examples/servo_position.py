@@ -63,13 +63,16 @@ def main() -> None:
             status = None
             while ticker.running(args.duration):
                 status = motor.update(setpoint)
-                if int(ticker.t * 4) != int((ticker.t - args.period) * 4):
+                if ticker.every(0.25):
                     print(f"\r  {status}", end="", flush=True)
                 ticker.tick()
             motor.stop()
 
+        if status is None:
+            print("\n\nno status received - the loop never ran (--duration too short?)")
+            return
         print(f"\n\nfinal {status.position_deg:+.2f} deg, commanded {args.degrees:+.2f}")
-        if rig.spec.drivetrain.pole_pairs.known and status is not None:
+        if rig.spec.drivetrain.pole_pairs.known and rig.spec.drivetrain.gear_ratio.known:
             print(
                 f"  {status.velocity_erpm:+.0f} ERPM is "
                 f"{status.velocity_radps:+.3f} rad/s at the output"

@@ -343,11 +343,11 @@ def test_link_info_survives_garbage_output(monkeypatch: pytest.MonkeyPatch) -> N
         (["NOARP", "UP", "LOWER_UP"], True),  # vcan: operstate reads UNKNOWN
         (["NOARP", "UP", "LOWER_UP", "ECHO"], True),  # a real gs_usb adapter
         (["NOARP"], False),  # created but never brought up
-        ([], False),  # no such interface
+        ([], None),  # nothing readable: not the same as "down"
     ],
 )
 def test_up_is_decided_by_the_flag_not_the_operstate(
-    flags: list[str], expected: bool, monkeypatch: pytest.MonkeyPatch
+    flags: list[str], expected: bool | None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A virtual CAN interface has no carrier, so it reports `state UNKNOWN` however
     healthy it is; real CAN hardware reports `state UP`.
@@ -366,7 +366,23 @@ def test_link_flags_are_empty_for_a_missing_interface() -> None:
     from cubemarspycan.transport import can_bus
 
     assert can_bus.socketcan_link_flags("definitely-not-an-interface") == []
-    assert not can_bus.socketcan_is_up("definitely-not-an-interface")
+    assert can_bus.socketcan_is_up("definitely-not-an-interface") is not True
+
+
+def test_unreadable_link_state_is_none_rather_than_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "Cannot tell" is a third answer, and collapsing it into "down" is how a healthy
+    interface gets blamed.
+
+    `doctor` used to read sysfs, which needs no external binary. Routing it through `ip`
+    means a host without iproute2 - a slim container, a BusyBox rootfs - reports every
+    working interface as down, on the same line as a bitrate it read successfully.
+    """
+    from cubemarspycan.transport import can_bus
+
+    monkeypatch.setattr(can_bus, "socketcan_link_flags", lambda _: [])
+    assert can_bus.socketcan_is_up("no-such-iface-anywhere") is None
 
 
 def test_link_entry_survives_garbage(monkeypatch: pytest.MonkeyPatch) -> None:

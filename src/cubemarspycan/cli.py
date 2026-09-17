@@ -290,8 +290,11 @@ def cmd_jog(args: argparse.Namespace) -> int:
         motor = MitMotor(bus, args.id, spec, policy=SafetyPolicy(max_temp_c=args.max_temp))
         with motor.control(wait_s=args.wait):
             if args.zero:
+                # Not a bare sleep: that sends nothing, and the driver may go quiet while
+                # it zeroes, so the next update() would trip staleness. zero_here() opens
+                # a grace window; settle() keeps the loop running through it.
                 motor.zero_here()
-                time.sleep(1.0)
+                motor.settle(1.0)
             deadline = time.monotonic() + args.duration
             while time.monotonic() < deadline:
                 state = motor.update(
@@ -389,7 +392,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             found = True
             bitrate = read_socketcan_bitrate(iface.name)
             # Not operstate: a vcan interface reports "unknown" however healthy it is.
-            link = "up" if socketcan_is_up(iface.name) else "down"
+            # None means neither sysfs nor `ip` could tell us; say so rather than "down".
+            up = socketcan_is_up(iface.name)
+            link = "?" if up is None else ("up" if up else "down")
             note = f"{bitrate} bit/s" if bitrate else "no bitrate (vcan, or never configured)"
             if bitrate not in (None, DEFAULT_BITRATE):
                 note += "   <- AK drivers expect 1 Mbit/s"

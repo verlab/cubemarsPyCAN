@@ -41,7 +41,7 @@ INTERFACE = CHANNEL_URL.split(":", 1)[1].split("@")[0]
 pytestmark = [
     pytest.mark.socketcan,
     pytest.mark.skipif(
-        not socketcan_is_up(INTERFACE),
+        socketcan_is_up(INTERFACE) is not True,
         reason=f"no socketcan interface {INTERFACE!r} is up "
         f"(sudo ip link add dev {INTERFACE} type vcan && sudo ip link set up {INTERFACE})",
     ),

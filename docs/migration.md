@@ -72,7 +72,9 @@ guess whether your firmware wraps or saturates.
 
 TMotorCANControl is GPLv3. This library is **MIT**, which is only defensible because it is
 written clean-room from the manual and the CubeMars datasheets with no code taken from it.
-`tools/check_cleanroom.py` compares token shingles against the reference and runs in CI.
+`tools/check_cleanroom.py` compares token shingles against the reference. It is a
+pre-release check run locally, not a CI step - the reference is gitignored, so in CI it
+would have nothing to compare against.
 
 Practically: you can vendor, fork or ship cubemarsPyCAN inside a closed product. You could
 not do that with the library it replaces.

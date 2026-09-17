@@ -15,6 +15,7 @@ frame sat in the latch, and `time.time()` can jump.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import math
 import statistics
@@ -47,6 +48,17 @@ def main() -> None:
     out = Path(args.out)
     rows: list[tuple[object, ...]] = []
 
+    # try/finally, because the interesting runs are the ones that end badly. MotorFault,
+    # StaleFeedbackError and an over-temperature MotorError all raise by design, and the
+    # rows leading up to one are exactly the rows worth having.
+    try:
+        _run(args, rows)
+    finally:
+        _write(out, rows)
+    _summarise(out, rows)
+
+
+def _run(args: argparse.Namespace, rows: list[tuple[object, ...]]) -> None:
     with open_rig(args) as rig:
         motor = MitMotor(
             rig.bus,
@@ -89,11 +101,18 @@ def main() -> None:
                 ticker.tick()
             motor.hold()
 
+
+def _write(out: Path, rows: list[tuple[object, ...]]) -> None:
     with out.open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(COLUMNS)
         writer.writerows(rows)
 
+
+def _summarise(out: Path, rows: list[tuple[object, ...]]) -> None:
+    if not rows:
+        print(f"wrote 0 rows to {out} (the loop never ran)")
+        return
     fresh = len({r[2] for r in rows})
     errors = [abs(float(r[4]) - float(r[3])) for r in rows]  # type: ignore[arg-type]
     print(f"wrote {len(rows)} rows to {out}")

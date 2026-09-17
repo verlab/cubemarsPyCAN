@@ -75,7 +75,7 @@ def main() -> None:
                     kd=args.damping,
                     torque=args.torque,
                 )
-                if int(ticker.t * 4) != int((ticker.t - args.period) * 4):
+                if ticker.every(0.25):
                     print(f"\r  t={ticker.t:5.2f}s  {state}", end="", flush=True)
                 ticker.tick()
 

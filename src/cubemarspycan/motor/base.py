@@ -59,6 +59,7 @@ class MotorEndpoint(Generic[StateT]):
         self._entered = False
         self._last_command_sent: float = 0.0
         self._clamp_events = 0
+        self._stale_grace_until: float = 0.0
 
         bus.register(self)
         self._warn_about_the_supply_voltage()
@@ -167,11 +168,26 @@ class MotorEndpoint(Generic[StateT]):
             f"then call motor.clear_fault() before continuing."
         )
 
+    def expect_silence(self, seconds: float) -> None:
+        """Tolerate missing feedback for ``seconds``, starting now.
+
+        Some operations stop the driver replying for a while - :meth:`MitMotor.zero_here`
+        is the one that bites. Staleness is measured against the last frame *received*, so
+        transmitting through the gap does not help: without this, the first ``update()``
+        after such an operation raises :class:`~cubemarspycan.errors.StaleFeedbackError`
+        even though nothing is wrong.
+
+        This suppresses only the *fatal* limit. The warning still fires, so a gap that
+        turns out to be permanent is still visible, and the next frame to arrive ends the
+        grace period early.
+        """
+        self._stale_grace_until = time.monotonic() + max(0.0, seconds)
+
     def _check_staleness(self, rx_monotonic: float, seq: int) -> None:
         if seq == 0:
             return
         age = time.monotonic() - rx_monotonic
-        if age > self.policy.stale_fatal_s:
+        if age > self.policy.stale_fatal_s and time.monotonic() >= self._stale_grace_until:
             self._emergency_stop()
             raise StaleFeedbackError(
                 f"{self.spec.name} id {self.motor_id}: no feedback for {age:.3f} s "

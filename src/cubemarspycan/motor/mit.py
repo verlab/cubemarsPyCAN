@@ -281,32 +281,33 @@ class MitMotor(MotorEndpoint[MitState]):
 
     # --- utilities ------------------------------------------------------------------
 
-    def zero_here(self) -> None:
+    def zero_here(self, *, grace_s: float = 1.5) -> None:
         """Set the current position as zero.
 
         The manual does not say whether this survives a power cycle, so do not rely on
         either behaviour.
 
         The driver needs about a second afterwards before position is trustworthy, and it
-        stops replying during that time. **Keep calling** :meth:`update` through the wait
-        rather than sleeping::
+        may stop replying during that time. Because staleness is measured against the last
+        frame *received*, transmitting through that gap does not keep it at bay - so this
+        calls :meth:`~cubemarspycan.motor.base.MotorEndpoint.expect_silence` for
+        ``grace_s`` and the wait becomes routine::
 
-            m.zero_here()
-            m.settle(1.5)     # keeps the link alive; a bare sleep trips staleness
-
-        A plain ``time.sleep(1.5)`` here sends nothing, so no feedback arrives, and the
-        next ``update()`` raises :class:`~cubemarspycan.errors.StaleFeedbackError` -
-        correctly, but confusingly.
-
-        **Drop the gains first if a position command is staged.** Zeroing moves the
-        coordinate system; a setpoint staged in the old frame becomes an instruction to
-        drive back to where the motor just came from::
-
-            m.hold()          # or command(kp=0, kd=0)
             m.zero_here()
             m.settle(1.5)
+
+        ``grace_s=0`` restores the strict behaviour if you would rather see the gap.
+
+        **The gains are dropped for you.** Zeroing moves the coordinate system, so a
+        setpoint staged in the old frame would become an instruction to drive back to
+        where the motor just came from. Staging zero gains is not enough on its own -
+        :meth:`hold` only stages, it does not transmit - so the zeroed command is put on
+        the wire *before* the origin moves.
         """
+        self.hold()
+        self._send_command()
         self.bus.send(codec.zero_position_frame(self.motor_id))
+        self.expect_silence(grace_s)
         self._turns.reset()
 
     def settle(self, seconds: float, period: float = 0.01) -> MitState | None:

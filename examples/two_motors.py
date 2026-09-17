@@ -49,7 +49,10 @@ def main() -> None:
         ):
             for motor in (leader, follower):
                 motor.zero_here()
-            settle(rig, leader)
+            # Both, not just the leader: a MIT driver only answers when commanded, so a
+            # motor left out here goes silent for the whole settle and its first update()
+            # in the loop below would trip staleness.
+            settle(rig, leader, follower)
 
             ticker = rig.ticker(args.period)
             worst = 0.0
@@ -68,7 +71,7 @@ def main() -> None:
                     torque=0.0,
                 )
                 worst = max(worst, abs(follow.position_rad - target))
-                if int(ticker.t * 2) != int((ticker.t - args.period) * 2):
+                if ticker.every(0.5):
                     print(
                         f"\r  leader {lead.position_rad:+7.4f}  "
                         f"follower {follow.position_rad:+7.4f}  "

@@ -33,11 +33,20 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.ceiling > 1.0:
+    if not 0.0 < args.ceiling <= 1.0:
+        # Both bounds matter. Above 1.0 Nm homing stops being gentle; at or below zero the
+        # contact test `abs(torque) > ceiling * 0.7` compares a magnitude against a
+        # non-positive number and is true forever, so the routine declares a hard stop it
+        # never touched and zeroes against it.
         parser.error(
-            "refusing a torque ceiling above 1.0 Nm for homing; raise it "
+            "--ceiling must be in (0, 1.0] Nm for homing; raise the upper bound "
             "deliberately in the source if your mechanism needs it"
         )
+    if args.speed <= 0.0:
+        # kd = ceiling / speed. A non-positive speed sends kd to the field maximum, making
+        # the real torque cap 5 Nm - above this motor's 4.1 Nm peak. Use --direction to
+        # choose which way to go.
+        parser.error("--speed must be positive; use --direction to choose the direction")
 
     with open_rig(args) as rig:
         if rig.simulated:
@@ -57,9 +66,10 @@ def main() -> None:
             supply_voltage=args.supply,
             policy=SafetyPolicy(max_temp_c=70.0),
         )
-        # kd alone gives a speed loop; the torque ceiling comes from clamping the command
-        # rather than from the field, so it is ours to choose and ours to keep small.
-        kd = args.ceiling / max(args.speed, 1e-6)
+        # kd alone gives a speed loop. Nothing clamps the torque: the ceiling is a
+        # consequence of choosing kd so that kd * v_des equals it, so it holds at stall -
+        # which is the case homing cares about - and not while the shaft is running away.
+        kd = args.ceiling / args.speed
         print(
             f"approaching at {args.speed:g} rad/s, direction {args.direction:+d}, "
             f"torque ceiling {args.ceiling:g} Nm (kd={kd:.2f})\n"
@@ -99,17 +109,22 @@ def main() -> None:
                 return
 
             # Back off before zeroing, so the reference is not taken while loaded.
+            # `state` from update() above, not motor.state: update() returns the
+            # turn-unwrapped position while the raw latch wraps at +/-12.5 rad. Mixing the
+            # two turns a 0.05 rad retreat into a 25 rad traverse once the stop is further
+            # out than the field span.
             back = rig.ticker(args.period)
-            target = motor.state.position_rad - args.backoff * args.direction  # type: ignore[union-attr]
+            contact = state.position_rad
+            target = contact - args.backoff * args.direction
+            settled = state
             while back.running(1.5):
-                motor.update(position=target, velocity=0.0, kp=20.0, kd=0.5, torque=0.0)
+                settled = motor.update(position=target, velocity=0.0, kp=20.0, kd=0.5, torque=0.0)
                 back.tick()
-            print(f"  backed off to {motor.state.position_rad:+.4f} rad")  # type: ignore[union-attr]
+            print(f"  backed off to {settled.position_rad:+.4f} rad")
 
-            # Stop driving before moving the origin. zero_here() changes the coordinate
-            # system, and a position command staged in the old frame becomes a command to
-            # run back to where the motor just came from.
-            motor.hold()
+            # zero_here() drops the gains and puts them on the wire before it moves the
+            # origin, so the setpoint staged in the old frame cannot become an instruction
+            # to drive back to where the motor just came from.
             motor.zero_here()
             settle(rig, motor)
             print(f"  zeroed; now reads {motor.update().position_rad:+.4f} rad")

@@ -77,6 +77,11 @@ def test_every_example_runs_against_the_simulator(
         cwd=str(ROOT),
     )
     assert result.returncode == 0, f"{path.name} failed:\n{result.stderr[-2000:]}"
+    # returncode alone is not enough: fault_handling.py and servo_modes.py catch
+    # MotorError and exit 0, so a run that latched a spurious fault would still look
+    # green. None of these are invoked in a way that should fault.
+    assert "FAULT:" not in result.stdout, f"{path.name} latched a fault:\n{result.stdout[-2000:]}"
+    assert "STALE:" not in result.stdout, f"{path.name} went stale:\n{result.stdout[-2000:]}"
 
 
 def test_the_position_step_example_converges() -> None:
@@ -96,7 +101,13 @@ def test_the_position_step_example_converges() -> None:
         check=True,
         cwd=str(ROOT),
     )
-    assert "+0.2497" in result.stdout or "+0.250" in result.stdout, result.stdout[-800:]
+    # Parse the measured error, not the echoed setpoint. Asserting "+0.250" appears in
+    # stdout passes even with kp=kd=0 (no tracking at all), because the example prints
+    # `target {target:+.3f}` straight from --amplitude.
+    errors = [float(m) for m in re.findall(r"error\s+([-+][\d.]+) mrad", result.stdout)]
+    assert errors, f"no error lines parsed:\n{result.stdout[-800:]}"
+    worst = max(abs(e) for e in errors)
+    assert worst < 20.0, f"worst settle error {worst:.1f} mrad:\n{result.stdout[-800:]}"
 
 
 def test_the_servo_example_reaches_its_target() -> None:

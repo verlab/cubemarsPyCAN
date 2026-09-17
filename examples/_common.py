@@ -11,6 +11,7 @@ loop timing live here.
 from __future__ import annotations
 
 import argparse
+import math
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -89,7 +90,9 @@ class Ticker:
         self.period = period
         self._sim = sim
         self._t = 0.0
+        self._n = 0
         self._start = time.monotonic()
+        self._prev_t = -period
 
     @property
     def t(self) -> float:
@@ -97,15 +100,30 @@ class Ticker:
         return self._t
 
     def tick(self) -> None:
+        self._prev_t = self._t
+        self._n += 1
         if self._sim is not None:
             self._sim.advance(self.period)  # type: ignore[attr-defined]
             self._t += self.period
         else:
-            time.sleep(self.period)
+            # Sleep to the next deadline, not for a fixed period. Sleeping `period` after
+            # a body that itself took `body` gives a real rate of 1/(period + body) - a
+            # 200 Hz loop with a 2 ms CAN send runs at ~99 Hz.
+            time.sleep(max(0.0, self._start + self._n * self.period - time.monotonic()))
             self._t = time.monotonic() - self._start
 
     def running(self, duration: float) -> bool:
         return self._t < duration
+
+    def every(self, seconds: float) -> bool:
+        """True once per ``seconds`` of loop time. For throttling prints.
+
+        Uses the previous tick's ``t`` rather than ``t - period``: on hardware a tick can
+        overrun its period, and assuming it did not makes a throttle skip or double-fire.
+        """
+        if seconds <= 0.0:
+            return True
+        return math.floor(self._t / seconds) != math.floor(self._prev_t / seconds)
 
 
 def wait_for_control(rig: Rig) -> float:
@@ -117,24 +135,37 @@ def wait_for_control(rig: Rig) -> float:
     return 0.0 if rig.simulated else 1.5
 
 
-def settle(rig: Rig, motor: object, seconds: float = 1.5, period: float = 0.005) -> None:
+def settle(rig: Rig, *motors: object, seconds: float = 1.5) -> None:
     """Hold after ``zero_here()``, doing the right thing for hardware and for the sim.
 
-    On hardware the driver stops replying for about a second while it zeroes, so the link
-    has to be kept alive - a bare ``time.sleep`` sends nothing and the next ``update()``
-    correctly raises ``StaleFeedbackError``.
+    Pass **every** motor you have zeroed. A MIT driver only answers when it is commanded,
+    so a motor left out here goes unspoken-to for the whole wait and its next ``update()``
+    trips staleness.
+
+    On hardware the driver may stop replying for about a second while it zeroes.
+    ``zero_here()`` opens a grace window for exactly that - staleness is measured on
+    *received* frames, so transmitting through the gap does not help by itself.
 
     Under the stepped simulator the opposite problem applies: ``motor.settle()`` sleeps,
-    and sleeping never advances a simulator that only moves when told to. So there we tick
-    instead, briefly.
+    and sleeping never advances a simulator that only moves when told to. The sim zeroes
+    instantly, so two ticks is enough to get a fresh frame - and deliberately no more,
+    because each tick integrates the MIT torque field's half-LSB zero offset and walks the
+    shaft back off the zero we just set.
     """
     if rig.simulated:
-        ticker = rig.ticker(period)
-        while ticker.running(0.1):
-            motor.update()  # type: ignore[attr-defined]
+        ticker = rig.ticker(0.005)
+        for _ in range(2):
+            # Tick first: zero_here() has already put a zeroed command on the wire, and
+            # updating before the sim has answered it warns about absent feedback.
             ticker.tick()
-    else:
-        motor.settle(seconds)  # type: ignore[attr-defined]
+            for motor in motors:
+                motor.update()  # type: ignore[attr-defined]
+        return
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        for motor in motors:
+            motor.update()  # type: ignore[attr-defined]
+        time.sleep(0.01)
 
 
 __all__ = [

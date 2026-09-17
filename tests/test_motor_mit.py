@@ -205,6 +205,51 @@ def test_zero_here_zeroes_the_motor(rig: Rig) -> None:
         assert rig.driver.plant.position == 0.0
 
 
+def test_zero_here_drops_the_gains_on_the_wire_before_moving_the_origin(rig: Rig) -> None:
+    """Staging zero gains is not enough: hold() only stages, it does not transmit.
+
+    If the origin moves while the last frame on the wire still carries kp=20 and a
+    setpoint expressed in the old frame, the driver's inner loop - which runs far faster
+    than CAN - drives back toward a target that has just been redefined underneath it.
+    """
+    with rig.motor.control(wait_s=0.0):
+        rig.run(20, kp=20.0, kd=0.5, position=1.0)
+        rig.motor.zero_here()
+        rig.sim.advance(0.0)
+
+    payloads = rig.payloads()
+    zero_at = payloads.index(codec.ZERO_POSITION)
+    assert payloads[zero_at - 1] == codec.pack_command(
+        SPEC.mit, position_rad=0.0, velocity_radps=0.0, kp=0.0, kd=0.0, torque_nm=0.0
+    ), "the zeroed command must be on the wire before the origin moves"
+
+
+def test_zero_here_tolerates_the_driver_going_quiet(rig: Rig) -> None:
+    """The driver may stop replying for about a second while it zeroes.
+
+    Staleness is measured against the last frame *received*, so transmitting through the
+    gap does not help - which is why a settle() that merely keeps sending still raised.
+    zero_here() opens an explicit grace window instead.
+    """
+    with rig.motor.control(wait_s=0.0):
+        rig.run(20, kp=20.0, kd=0.5, position=0.2)
+        rig.motor.zero_here(grace_s=5.0)
+        rig.sim.freeze()  # the driver answers nothing at all from here on
+        time.sleep(rig.motor.policy.stale_fatal_s + 0.05)
+        rig.motor.update()  # would raise StaleFeedbackError without the grace window
+
+
+def test_the_grace_window_expires_rather_than_masking_a_dead_link(rig: Rig) -> None:
+    """A grace window that never ended would be worse than the bug it fixes."""
+    with rig.motor.control(wait_s=0.0):
+        rig.run(20, kp=20.0, kd=0.5, position=0.2)
+        rig.motor.zero_here(grace_s=0.05)
+        rig.sim.freeze()
+        time.sleep(rig.motor.policy.stale_fatal_s + 0.1)
+        with pytest.raises(StaleFeedbackError):
+            rig.motor.update()
+
+
 # --- faults -------------------------------------------------------------------------
 
 
