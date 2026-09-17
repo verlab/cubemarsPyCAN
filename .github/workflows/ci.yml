@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Neither job needs more than a checkout. Without this key both inherit whatever the
+# repository default grants, which is often read+write.
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:

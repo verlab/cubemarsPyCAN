@@ -39,6 +39,12 @@ class FaultEvent:
 
     @classmethod
     def from_code(cls, code: int, source: str, rx_monotonic: float, seq: int) -> FaultEvent:
+        """Build an event from a raw wire fault code, resolving its text.
+
+        An unrecognised code is preserved verbatim with a generic description rather than
+        raising - a driver reporting something this library has not seen is exactly when
+        the caller most needs the number.
+        """
         fault, text = describe_can_fault(code)
         return cls(code, text, fault, source, rx_monotonic, seq)
 
@@ -55,42 +61,95 @@ class MitState:
     """
 
     spec: MotorSpec
+    """The spec this frame was decoded against, and the source of every conversion."""
     position_rad: float
+    """Angle in radians, **output-side**, as decoded from the 16-bit position field."""
     velocity_radps: float
+    """Speed in rad/s, **output-side**, from the 12-bit velocity field."""
     torque_nm: float
+    """Torque in N*m, **output-side**.
+
+    The wire quantity is torque, not current: the manual's own reply decoder names it so
+    and scales it by the torque field. TMotorCANControl converts it to a "q-axis current"
+    through Kt, the gear ratio and an undocumented 0.59 factor and presents *that* as the
+    primary reading.
+    """
     temperature_c: int
+    """Driver temperature in degrees Celsius, decoded as ``D6 - 40``."""
     fault_code: int
+    """Raw driver fault code; 0 is healthy. See :attr:`fault_text` for a description."""
     rx_monotonic: float
+    """Arrival time from :func:`time.monotonic`, stamped on the receive thread.
+
+    Never the bus timestamp, which is epoch-based and on some backends comes from the
+    driver with an unrelated origin. Staleness is measured against this.
+    """
     seq: int
+    """Monotonic counter, incremented once per published frame. 0 means none yet.
+
+    A jump of more than 1 between two reads means several frames arrived while the loop
+    was busy; the latch keeps the newest and nothing is lost.
+    """
 
     # --- faults ---------------------------------------------------------------------
 
     @property
     def fault(self) -> CanFault | None:
+        """The decoded fault, or ``None`` for code 0 **or** an unrecognised code.
+
+        ``None`` is therefore not the same as healthy - check :attr:`is_faulted` for that,
+        and :attr:`fault_text` for something printable either way.
+        """
         return describe_can_fault(self.fault_code)[0]
 
     @property
     def fault_text(self) -> str:
+        """A printable description of :attr:`fault_code`, always non-empty.
+
+        Falls back to naming the raw code when the driver reports something this library
+        does not recognise.
+        """
         return describe_can_fault(self.fault_code)[1]
 
     @property
     def is_faulted(self) -> bool:
+        """Whether the driver reported any non-zero fault code.
+
+        The authoritative check: unlike :attr:`fault`, this is true for codes the library
+        cannot name.
+        """
         return self.fault_code != 0
 
     # --- rotor side -----------------------------------------------------------------
 
     @property
     def position_rotor_rad(self) -> float:
+        """Rotor-side angle in radians: the output angle times the gear ratio.
+
+        **Ten times** :attr:`position_rad` on an AK40-10. Derived, not measured: the wire
+        carries the output-side value, bench-confirmed at 6.3867 rad for one hand-turn.
+        Raises :class:`~cubemarspycan.errors.SpecIncompleteError` if the gear ratio is
+        unknown.
+        """
         gr = self.spec.drivetrain.gear_ratio.require("rotor-side position")
         return self.position_rad * gr
 
     @property
     def velocity_rotor_radps(self) -> float:
+        """Rotor-side speed in rad/s: the output speed times the gear ratio.
+
+        Raises :class:`~cubemarspycan.errors.SpecIncompleteError` if the gear ratio is
+        unknown.
+        """
         gr = self.spec.drivetrain.gear_ratio.require("rotor-side velocity")
         return self.velocity_radps * gr
 
     @property
     def position_deg(self) -> float:
+        """Output-shaft angle in degrees. A pure unit change on :attr:`position_rad`.
+
+        Needs no spec constant, so unlike the rotor-side properties it can never refuse.
+        """
         return rad_to_deg(self.position_rad)
 
     # --- derived, and honest about it -----------------------------------------------
@@ -134,24 +193,52 @@ class ServoStatus:
     """
 
     spec: MotorSpec
+    """The spec this frame was decoded against, and the source of every conversion."""
     position_deg: float
+    """Angle in degrees, straight off the wire.
+
+    Always available, because it assumes nothing. Which side of the gearbox it refers to
+    is undocumented, which is why :attr:`output_rad` refuses until the spec records a
+    measurement.
+    """
     velocity_erpm: float
+    """Speed in **electrical** RPM, not mechanical. See :attr:`velocity_radps`."""
     current_a: float
+    """q-axis current in amps, as reported by the driver."""
     temperature_c: int
+    """Driver temperature in degrees Celsius."""
     fault_code: int
+    """Raw driver fault code; 0 is healthy. See :attr:`fault_text` for a description."""
     rx_monotonic: float
+    """Arrival time from :func:`time.monotonic`, stamped on the receive thread."""
     seq: int
+    """Monotonic counter, incremented once per published frame. 0 means none yet."""
 
     @property
     def fault(self) -> CanFault | None:
+        """The decoded fault, or ``None`` for code 0 **or** an unrecognised code.
+
+        ``None`` is therefore not the same as healthy - check :attr:`is_faulted` for that,
+        and :attr:`fault_text` for something printable either way.
+        """
         return describe_can_fault(self.fault_code)[0]
 
     @property
     def fault_text(self) -> str:
+        """A printable description of :attr:`fault_code`, always non-empty.
+
+        Falls back to naming the raw code when the driver reports something this library
+        does not recognise.
+        """
         return describe_can_fault(self.fault_code)[1]
 
     @property
     def is_faulted(self) -> bool:
+        """Whether the driver reported any non-zero fault code.
+
+        The authoritative check: unlike :attr:`fault`, this is true for codes the library
+        cannot name.
+        """
         return self.fault_code != 0
 
     @property

@@ -100,6 +100,11 @@ class ServoEventFrame:
 
 
 def arbitration_id(packet: ServoPacket | int, motor_id: int) -> int:
+    """The extended arbitration id for a servo packet: ``(packet_id << 8) | motor_id``.
+
+    Servo mode puts the command above the motor id in one 29-bit extended id, which is why
+    servo framing is unambiguous where MIT's is not.
+    """
     if not 0 <= motor_id <= MOTOR_ID_MASK:
         raise ValueError(f"servo motor id must be 0..255, got {motor_id}")
     return (int(packet) << 8) | motor_id

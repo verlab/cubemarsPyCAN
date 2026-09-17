@@ -52,6 +52,12 @@ class ServoMotor(MotorEndpoint[ServoStatus]):
     # --- Endpoint -------------------------------------------------------------------
 
     def accepts(self, frame: Frame) -> bool:
+        """Whether this frame is servo feedback for this motor. Runs on the receive thread.
+
+        Servo framing is unambiguous, so this is exact rather than learned: extended id,
+        the motor id in the low byte, and a function id this library handles. ``0x2C`` and
+        ``0x09`` are accepted as *events* and never decoded as position.
+        """
         if not frame.is_extended_id:
             return False
         function_id, motor_id = codec.split_arbitration_id(frame.arbitration_id)
@@ -263,6 +269,12 @@ class ServoMotor(MotorEndpoint[ServoStatus]):
 
     @property
     def status(self) -> ServoStatus | None:
+        """The most recent status, without sending anything. ``None`` before the first.
+
+        A persistent ``None`` while the wiring is fine almost always means the driver's CAN
+        status rate is 0, so it never uploads - the single most common servo-mode
+        confusion.
+        """
         return self._states.read()[0]
 
     @property
@@ -282,13 +294,26 @@ class ServoMotor(MotorEndpoint[ServoStatus]):
 
     @property
     def staged_setpoint(self) -> setpoints.Setpoint:
+        """The setpoint that :meth:`update` will re-send if called with no argument.
+
+        Exactly one setpoint is in flight at a time: the six command types are mutually
+        exclusive, which is why they are distinct types rather than fields.
+        """
         return self._setpoint
 
     @property
     def decode_errors(self) -> int:
+        """Frames accepted for this motor that then failed to decode. Should stay zero."""
         return self._decode_errors
 
     def describe(self) -> str:
+        """A multi-line report of the scaling, the current limit, and the provenance.
+
+        States where the current limit comes from - datasheet peak, policy ceiling, or
+        neither, in which case current commands are refused rather than sent with no
+        bound. The servo current field accepts +/-60 A against this motor's 7.3 A peak, so
+        an unset limit is a real hazard and is reported as one.
+        """
         scaling = self.spec.servo
         peak = self.spec.limits.peak_current_a
         current_limit = (

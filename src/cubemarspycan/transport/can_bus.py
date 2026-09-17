@@ -67,6 +67,12 @@ class TransportStats:
     tx_durations: deque[float] = field(default_factory=lambda: deque(maxlen=1024))
 
     def record_error(self, where: str, exc: BaseException) -> None:
+        """Count and sample an exception, tagged with where it happened.
+
+        ``where`` is one of ``"frame-build"``, ``"sink"``, ``"notifier"`` or ``"send"``.
+        Called from the receive thread's ``except`` blocks, so it must not raise; the
+        sample list is bounded.
+        """
         self.errors.append((where, f"{type(exc).__name__}: {exc}"))
 
     def tx_percentiles(self) -> dict[str, float]:
@@ -149,10 +155,20 @@ class CanTransport(can.Listener):
         self._sinks.append(sink)
 
     def start(self) -> None:
+        """Start the python-can notifier thread. Idempotent while open.
+
+        Sinks registered after this point are still called - the sink list is read per
+        frame - but they will not see frames that already arrived.
+        """
         if self._notifier is None:
             self._notifier = can.Notifier(bus=self._bus, listeners=[self])
 
     def close(self) -> None:
+        """Stop the notifier and shut the bus down. Idempotent, and never raises.
+
+        Only shuts down the underlying ``can.BusABC`` if this transport created it: an
+        injected bus belongs to the caller. Safe to call after a failed :meth:`start`.
+        """
         if self._closed:
             return
         self._closed = True
@@ -171,10 +187,20 @@ class CanTransport(can.Listener):
 
     @property
     def bus(self) -> can.BusABC:
+        """The wrapped ``can.BusABC``.
+
+        Exposed so an application can reach backend-specific features this wrapper does
+        not model. Send through :meth:`send` instead, so frames are counted and failures
+        are wrapped.
+        """
         return self._bus
 
     @property
     def channel_info(self) -> str:
+        """The backend's own description of the channel, for diagnostics and messages.
+
+        Free-form and backend-specific - useful to a human, not something to parse.
+        """
         return str(getattr(self._bus, "channel_info", self._bus))
 
     # --- transmit -------------------------------------------------------------------
@@ -217,6 +243,18 @@ class CanTransport(can.Listener):
     # --- receive: runs on the notifier thread and MUST NOT RAISE --------------------
 
     def on_message_received(self, msg: can.Message) -> None:
+        """python-can's receive hook. Runs on the notifier thread and never raises.
+
+        Stamps arrival from :func:`time.monotonic` **here**, not from
+        ``msg.timestamp``: the bus timestamp is epoch-based and on some backends comes
+        from the driver with an unrelated origin, which would make staleness meaningless.
+        The bus value is passed along for logs.
+
+        Error and remote frames are counted and dropped rather than decoded. Every sink is
+        called inside its own ``except BaseException`` - a sink raising
+        ``KeyboardInterrupt`` must not take the receive thread down and silence every
+        motor on the bus.
+        """
         rx_monotonic = time.monotonic()
         try:
             if msg.is_error_frame or msg.is_remote_frame:

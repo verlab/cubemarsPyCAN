@@ -51,6 +51,11 @@ class BusStats:
     unmatched_samples: deque[str] = field(default_factory=lambda: deque(maxlen=16))
 
     def record_endpoint_error(self, endpoint: object, exc: BaseException) -> None:
+        """Count and sample an exception raised by an endpoint.
+
+        Called on the receive thread, from inside the ``except`` that keeps one motor's bug
+        from silencing the others, so it must not raise. The sample list is bounded.
+        """
         self.endpoint_errors += 1
         self.errors.append(f"{type(endpoint).__name__}: {type(exc).__name__}: {exc}")
 
@@ -69,11 +74,22 @@ class MotorBus:
     # --- lifecycle ------------------------------------------------------------------
 
     def start(self) -> None:
+        """Begin receiving. Idempotent - a second call is a no-op.
+
+        Registering a motor afterwards is safe and needs no restart, since routing reads
+        an immutable tuple that :meth:`register` replaces wholesale.
+        """
         if not self._started:
             self._transport.start()
             self._started = True
 
     def close(self) -> None:
+        """Close the transport and stop receiving.
+
+        Delegates to the transport, whose ``close`` is required to be idempotent and
+        non-raising, so this is safe from an error path. Endpoints stay registered: closing
+        the bus ends reception, it does not dismantle the object.
+        """
         self._transport.close()
         self._started = False
 
@@ -86,10 +102,20 @@ class MotorBus:
 
     @property
     def transport(self) -> FrameTransport:
+        """The injected transport. Exposed for diagnostics, not for sending.
+
+        Use :meth:`send` instead, so frames are counted.
+        """
         return self._transport
 
     @property
     def endpoints(self) -> tuple[Endpoint, ...]:
+        """The registered endpoints, as an immutable snapshot.
+
+        Safe to read from any thread: :meth:`register` and :meth:`unregister` publish a
+        new tuple rather than mutating this one, which is what lets the receive thread take
+        its snapshot with a single attribute read and no lock.
+        """
         return self._endpoints
 
     # --- registration ---------------------------------------------------------------
@@ -102,12 +128,24 @@ class MotorBus:
             self._endpoints = (*self._endpoints, endpoint)
 
     def unregister(self, endpoint: Endpoint) -> None:
+        """Remove an endpoint. Unknown endpoints are ignored.
+
+        Compares by identity, not equality. A frame already being dispatched may still
+        reach the endpoint: the receive thread snapshots the tuple before iterating, so
+        removal takes effect from the next frame, not the current one.
+        """
         with self._register_lock:
             self._endpoints = tuple(e for e in self._endpoints if e is not endpoint)
 
     # --- transmit -------------------------------------------------------------------
 
     def send(self, frame: Frame, timeout: float | None = 0.05) -> None:
+        """Put one frame on the bus, blocking up to ``timeout`` seconds.
+
+        Called on the caller's thread. Propagates
+        :class:`~cubemarspycan.errors.SendFailed` unchanged - a command that did not reach
+        the motor must not look like one that did.
+        """
         self._transport.send(frame, timeout)
 
     # --- receive: runs on the notifier thread and MUST NOT RAISE --------------------
@@ -132,6 +170,11 @@ class MotorBus:
     # --- diagnostics ----------------------------------------------------------------
 
     def describe(self) -> str:
+        """A multi-line diagnostic summary: channel, endpoint count, and receive stats.
+
+        Includes the last few frames that matched no endpoint, which is what distinguishes
+        "nothing is on the bus" from "something is there but not answering to that id".
+        """
         lines = [f"MotorBus on {getattr(self._transport, 'channel_info', self._transport)}"]
         lines.append(f"  endpoints      : {len(self._endpoints)}")
         lines.append(f"  rx matched     : {self.stats.rx_matched}")

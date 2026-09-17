@@ -30,10 +30,27 @@ class Setpoint:
     """Base for the six servo commands."""
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:  # pragma: no cover
+        """Encode this setpoint as one extended CAN frame for ``motor_id``.
+
+        The shared contract, which every subclass keeps: pure, allocates exactly one
+        :class:`~cubemarspycan.frame.Frame`, and performs **no** safety clamping - the
+        wire fields are far wider than any motor (the current field is +/-60 A against the
+        AK40-10's 7.3 A peak), so limits belong to
+        :class:`~cubemarspycan.policy.SafetyPolicy`, not here. Raises
+        :class:`~cubemarspycan.errors.SpecIncompleteError` if the scaling needed for this
+        command is unknown for ``spec``.
+
+        Each subclass documents only what differs: its packet id and its scale factor.
+        """
         raise NotImplementedError
 
     @property
     def summary(self) -> str:  # pragma: no cover
+        """A short human-readable form, for logs and CLI output.
+
+        Value and unit only - never the motor id, and never enough to reconstruct the
+        frame. Each subclass states its own format.
+        """
         raise NotImplementedError
 
 
@@ -44,10 +61,12 @@ class Duty(Setpoint):
     value: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``0``, ``SET_DUTY``. Duty times the spec's duty scale, as int32."""
         return codec.encode_duty(motor_id, self.value, spec.servo)
 
     @property
     def summary(self) -> str:
+        """``duty +0.050``, three decimals and always signed."""
         return f"duty {self.value:+.3f}"
 
 
@@ -58,10 +77,12 @@ class Current(Setpoint):
     amps: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``1``, ``SET_CURRENT``. Amps times the spec's current scale, int32."""
         return codec.encode_current(motor_id, self.amps, spec.servo)
 
     @property
     def summary(self) -> str:
+        """``+1.50 A``, two decimals and always signed."""
         return f"{self.amps:+.2f} A"
 
 
@@ -72,10 +93,15 @@ class CurrentBrake(Setpoint):
     amps: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``2``, ``SET_CURRENT_BRAKE``. Same scaling as :class:`Current`.
+
+        A negative value has no meaning here - braking current is a magnitude.
+        """
         return codec.encode_current_brake(motor_id, self.amps, spec.servo)
 
     @property
     def summary(self) -> str:
+        """``brake 0.50 A``. Unsigned, because the value is a magnitude."""
         return f"brake {self.amps:.2f} A"
 
 
@@ -91,10 +117,12 @@ class Rpm(Setpoint):
     erpm: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``3``, ``SET_RPM``. **Electrical** RPM times the spec's rpm scale."""
         return codec.encode_rpm(motor_id, self.erpm, spec.servo)
 
     @property
     def summary(self) -> str:
+        """``+3000 ERPM``, no decimals. Electrical, not mechanical."""
         return f"{self.erpm:+.0f} ERPM"
 
 
@@ -105,10 +133,16 @@ class Position(Setpoint):
     degrees: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``4``, ``SET_POS``. Degrees scaled by **1e4**, as int32.
+
+        1e4, not 1e6. TMotorCANControl uses 1e6, which is a 100x error: a commanded 90
+        degrees arrives as 0.9.
+        """
         return codec.encode_position(motor_id, self.degrees, spec.servo)
 
     @property
     def summary(self) -> str:
+        """``+90.00 deg``, two decimals and always signed."""
         return f"{self.degrees:+.2f} deg"
 
 
@@ -125,12 +159,19 @@ class PositionSpeed(Setpoint):
     accel_erpm_s2: float
 
     def to_frame(self, motor_id: int, spec: MotorSpec) -> Frame:
+        """Packet ``6``, ``SET_POS_SPD``. Degrees by 1e4; speed and accel each **/10**.
+
+        The divide-by-ten applies to *both* limits before they are packed as int16, so the
+        effective resolution is 10 ERPM and 10 ERPM/s^2. Missing it on either field is a
+        10x error in the move profile.
+        """
         return codec.encode_position_speed(
             motor_id, self.degrees, self.speed_erpm, self.accel_erpm_s2, spec.servo
         )
 
     @property
     def summary(self) -> str:
+        """``+90.00 deg at 5000 ERPM, accel 30000`` - the target and both limits."""
         return (
             f"{self.degrees:+.2f} deg at {self.speed_erpm:.0f} ERPM, accel {self.accel_erpm_s2:.0f}"
         )

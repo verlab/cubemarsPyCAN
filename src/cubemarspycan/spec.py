@@ -69,10 +69,26 @@ class Sourced(Generic[T]):
 
     @property
     def known(self) -> bool:
+        """Whether there is a value at all. Says nothing about how good it is.
+
+        ``known`` is the gate :meth:`require` uses, so a guessed constant still passes it.
+        Use :attr:`trusted` when the *quality* matters.
+        """
         return self.value is not None and self.source is not Source.UNKNOWN
 
     @property
     def trusted(self) -> bool:
+        """Whether the value came from a source worth acting on without checking.
+
+        True only for :attr:`Source.MEASURED`, :attr:`Source.MANUAL`,
+        :attr:`Source.DATASHEET` and :attr:`Source.TOOL`. Notably **false** for
+        ``NAMEPLATE`` (inferred from the model name), ``ESTIMATED`` (derived from another
+        constant) and ``ASSUMED`` - each of which is known, and any of which may be wrong.
+
+        The difference between this and :attr:`known` is the whole point of the type: a
+        conversion may proceed on a known constant, but a *warning* belongs on one that is
+        not trusted.
+        """
         return self.known and self.source in _TRUSTED
 
     def require(self, what: str) -> T:
@@ -135,6 +151,7 @@ class FieldRange:
 
     @property
     def span(self) -> float:
+        """``hi - lo``, in the field's own units. Always positive."""
         return self.hi - self.lo
 
     @property
@@ -144,18 +161,42 @@ class FieldRange:
 
     @property
     def max_uint(self) -> int:
+        """The largest value the field can hold: ``(1 << bits) - 1``.
+
+        The ``- 1`` is load-bearing. The manual's own formula divides the span by
+        ``1 << bits``, which returns exactly ``1 << bits`` at ``x == hi`` - one too large
+        to fit, so a fully saturated command wraps to zero. Scaling against this value
+        instead makes ``hi`` land on the largest representable code.
+        """
         return max_uint(self.bits)
 
     def clamp(self, x: float) -> float:
+        """``x`` limited to what the field can express.
+
+        Wire-side only. This is not a safety limit - the field may be wider than the
+        motor can survive, which is what :class:`PhysicalLimits` is for.
+        """
         return min(max(x, self.lo), self.hi)
 
     def contains(self, x: float) -> bool:
+        """Whether ``x`` fits without clamping. Inclusive at both ends."""
         return self.lo <= x <= self.hi
 
     def to_uint(self, x: float) -> int:
+        """Quantise ``x`` to the unsigned code the wire carries, clamping first.
+
+        Exact inverse of :meth:`from_uint` to within one LSB, which is the best any
+        quantiser can do. No field can encode an exact zero: the ranges are symmetric over
+        an even-sized field, so the midpoint sits half an LSB above zero.
+        """
         return float_to_uint(x, self.lo, self.hi, self.bits)
 
     def from_uint(self, u: int) -> float:
+        """Decode a wire code back to the field's own units.
+
+        Matches the firmware's documented ``uint_to_float``, so a value that round-trips
+        through the driver comes back where it started.
+        """
         return uint_to_float(u, self.lo, self.hi, self.bits)
 
     def __str__(self) -> str:
@@ -304,6 +345,13 @@ class MotorSpec:
     # --- conversions that refuse rather than guess ---------------------------------
 
     def erpm_to_radps_output(self, erpm: float) -> float:
+        """Electrical RPM to **output-shaft** rad/s.
+
+        Needs both the pole-pair count and the gear ratio, and raises
+        :class:`~cubemarspycan.errors.SpecIncompleteError` naming whichever is unknown
+        rather than substituting a plausible number. TMotorCANControl hard-codes one
+        conversion factor for every motor, which is 22% wrong for the AK40-10.
+        """
         return erpm_to_radps(
             erpm,
             self.drivetrain.pole_pairs.require("ERPM to rad/s conversion (pole pairs)"),
@@ -311,6 +359,12 @@ class MotorSpec:
         )
 
     def radps_output_to_erpm(self, radps: float) -> float:
+        """**Output-shaft** rad/s to electrical RPM, the inverse of
+        :meth:`erpm_to_radps_output`.
+
+        Raises :class:`~cubemarspycan.errors.SpecIncompleteError` if the pole-pair count
+        or the gear ratio is unknown.
+        """
         return radps_to_erpm(
             radps,
             self.drivetrain.pole_pairs.require("rad/s to ERPM conversion (pole pairs)"),
@@ -328,6 +382,14 @@ class MotorSpec:
         return amps * kt * gr
 
     def current_for_output_torque(self, torque_nm: float) -> float:
+        """q-axis current, in amps, for a torque demanded at the **output shaft**.
+
+        ``torque_nm / (Kt * gear_ratio)``, the inverse of
+        :meth:`output_torque_from_current`. Ignores gearbox losses, so the real current
+        needed is somewhat higher - the AK40-10's rated figures imply about 86%
+        efficiency. Raises :class:`~cubemarspycan.errors.SpecIncompleteError` if Kt or the
+        gear ratio is unknown.
+        """
         kt = self.drivetrain.kt_nm_per_a.require("current from torque (Kt)")
         gr = self.drivetrain.gear_ratio.require("current from torque (gear ratio)")
         return torque_nm / (kt * gr)
@@ -342,6 +404,13 @@ class MotorSpec:
         return self.mit.torque.hi
 
     def effective_velocity_limit_radps(self) -> float:
+        """The smaller of what the velocity field can express and the no-load speed.
+
+        Output-side, rad/s. Falls back to the field's upper bound when the no-load speed is
+        unknown - the honest answer there is the wire limit, not a guess at the mechanism.
+        Note this binds in *either* direction across the AK line: the AK40-10's field is
+        wider than the motor, the AK80-9's is narrower.
+        """
         no_load = self.limits.no_load_speed_radps
         if no_load.known:
             return min(self.mit.velocity.hi, no_load.require("effective velocity limit"))

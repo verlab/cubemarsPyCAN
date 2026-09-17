@@ -64,10 +64,16 @@ def lsb(lo: float, hi: float, bits: int) -> float:
 
 
 def rpm_to_radps(rpm: float) -> float:
+    """Mechanical RPM to rad/s. Side-neutral: whatever shaft you put in, you get out.
+
+    Every other conversion in this module is side-specific; this one is a pure unit
+    change, so it cannot be wrong about the gearbox.
+    """
     return rpm * _RADPS_PER_RPM
 
 
 def radps_to_rpm(radps: float) -> float:
+    """rad/s to mechanical RPM, the inverse of :func:`rpm_to_radps`. Side-neutral."""
     return radps / _RADPS_PER_RPM
 
 

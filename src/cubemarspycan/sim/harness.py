@@ -56,6 +56,7 @@ class SteppedSim:
         self.frozen = True
 
     def thaw(self) -> None:
+        """Resume replying after :meth:`freeze`. Idempotent."""
         self.frozen = False
 
     def drop_every(self, n: int) -> None:
@@ -124,6 +125,11 @@ class SteppedSim:
         )
 
     def close(self) -> None:
+        """Stop the notifier and shut down the simulator's own bus.
+
+        The library's transport is closed separately - the two ends are deliberately
+        distinct buses so that CI exercises the real receive path.
+        """
         self.bus.shutdown()
 
 

@@ -59,6 +59,12 @@ class Plant:
 
     @property
     def at_limit(self) -> bool:
+        """Whether the position is resting on either hard stop.
+
+        True while a stop is being pushed against, which is the condition a homing routine
+        looks for. ``limit_lo``/``limit_hi`` default to ``None``, so a plant with free
+        travel always reports ``False``.
+        """
         return (self.limit_hi is not None and self.position >= self.limit_hi) or (
             self.limit_lo is not None and self.position <= self.limit_lo
         )

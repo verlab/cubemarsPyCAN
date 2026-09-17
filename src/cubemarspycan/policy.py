@@ -47,6 +47,11 @@ class ClampReport:
 
     @property
     def clamped(self) -> bool:
+        """Whether the value was actually altered.
+
+        ``requested != applied``. Reported rather than raised, so a saturating controller
+        is visible in the log instead of being silently trimmed.
+        """
         return self.requested != self.applied
 
     def __str__(self) -> str:

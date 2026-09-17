@@ -162,6 +162,16 @@ against a virtual bus, not read off:
 
 ## Documentation
 
+**[verlab.github.io/cubemarsPyCAN](https://verlab.github.io/cubemarsPyCAN/)** — the guides
+below plus a generated API reference, built from the source on every push to `main` with
+warnings as errors, so a broken cross-reference fails the build.
+
+Building it locally:
+
+```bash
+pip install -e ".[docs]" && python -m sphinx -b html -W -n docs docs/_build/html
+```
+
 | | |
 |---|---|
 | [docs/cli.md](docs/cli.md) | command-line recipes for bring-up and diagnosis |

@@ -1,0 +1,69 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# ci.yml has no `permissions:` key at all, so it inherits the repository default. Being
+# explicit is the point: the build needs nothing but a checkout.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e ".[docs]"
+
+      # -W makes every warning fatal; --keep-going reports all of them in one run rather
+      # than one per push; -n (nitpicky) turns every unresolved cross-reference into a
+      # warning, which is what makes -W mean anything for an API reference.
+      - name: Build
+        run: python -m sphinx -b html -W --keep-going -n docs docs/_build/html
+
+      # Ruff can see that a docstring exists; only this can see that a member was
+      # excluded from the published docs and so is undocumented *to a reader*.
+      - name: Docstring coverage
+        run: |
+          python -m sphinx -b coverage docs docs/_build/coverage
+          if grep -qE "^ \* " docs/_build/coverage/python.txt; then
+            echo "::error::undocumented public members:"
+            cat docs/_build/coverage/python.txt
+            exit 1
+          fi
+
+      # Nothing below this line runs on a pull request.
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # One deploy at a time, and never cancel one in flight. Deliberately a different
+    # group from the build above, so a PR build cannot queue behind a deployment.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

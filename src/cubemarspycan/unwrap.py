@@ -45,6 +45,12 @@ class TurnCounter:
 
     @property
     def mode(self) -> WrapMode:
+        """The wrap behaviour this counter was built for.
+
+        :attr:`~cubemarspycan.spec.WrapMode.UNKNOWN` means unwrapping is disabled and
+        multi-turn reads refuse: guessing whether a field wraps or saturates produces a
+        position that is wrong by a whole field span.
+        """
         return self._mode
 
     @property
@@ -53,6 +59,12 @@ class TurnCounter:
         return self._saturation_seen
 
     def reset(self, raw: float | None = None) -> None:
+        """Forget the accumulated turns, optionally re-anchoring on ``raw``.
+
+        Called by :meth:`~cubemarspycan.motor.mit.MitMotor.zero_here`, since the origin
+        has moved and the old turn count no longer means anything. Without ``raw`` the
+        next reading establishes the new anchor.
+        """
         self._turns = 0
         self._last_raw = raw
         self._saturation_seen = False

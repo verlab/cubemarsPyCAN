@@ -44,9 +44,17 @@ class Frame:
 
     @property
     def dlc(self) -> int:
+        """Data length code: the payload length in bytes, 0-8.
+
+        AK frames are DLC 8 in both modes; anything else is a foreign frame.
+        """
         return len(self.data)
 
     def hex(self) -> str:
+        """The payload as space-separated uppercase hex, e.g. ``"FF FF FF FF FF FF FF FC"``.
+
+        For logs and for comparing against the manual's byte tables.
+        """
         return " ".join(f"{b:02X}" for b in self.data)
 
     def __str__(self) -> str:

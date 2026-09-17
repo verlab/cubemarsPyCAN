@@ -139,6 +139,15 @@ class MitMotor(MotorEndpoint[MitState]):
 
     @contextmanager
     def control(self, wait_s: float = 1.0) -> Iterator[MitMotor]:
+        """Enter MIT mode, and guarantee a safe stop and an exit on the way out.
+
+        Narrows the base context manager's type so ``with m.control() as m:`` yields a
+        :class:`MitMotor`. The behaviour - enter frames, optional wait for first feedback,
+        then a zero-gain zero-torque frame followed by the exit frame in a ``finally`` - is
+        the base class's; see
+        :meth:`~cubemarspycan.motor.base.MotorEndpoint.control`. ``wait_s=0`` skips the
+        wait, which is what a stepped simulator needs.
+        """
         with super().control(wait_s):
             yield self
 
@@ -334,13 +343,32 @@ class MitMotor(MotorEndpoint[MitState]):
 
     @property
     def staged_command(self) -> tuple[float, float, float, float, float]:
+        """The five staged MIT fields, output-side:
+        ``(position_rad, velocity_radps, kp, kd, torque_nm)``.
+
+        Staged, not sent - nothing reaches the wire until :meth:`update`. These are the
+        values **after** clamping, so they are what will actually go out rather than what
+        was asked for.
+        """
         return self._command
 
     @property
     def decode_errors(self) -> int:
+        """Frames accepted for this motor that then failed to decode.
+
+        Should stay at zero. A climbing count means something is answering on this id that
+        is not this motor, or the link is corrupting payloads.
+        """
         return self._decode_errors
 
     def describe(self) -> str:
+        """A multi-line report of the fields, the effective limits, and the provenance.
+
+        Prints both the wire field range and the effective limit for each quantity, which
+        differ in *either* direction across the AK line, plus where every constant came
+        from. Worth printing once at startup: it is the fastest way to see that a spec is
+        incomplete before a conversion refuses mid-run.
+        """
         fields = self.spec.mit
         lines = [
             f"{self.device_info()}  (MIT mode, manual v{self.spec.manual_version})",

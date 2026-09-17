@@ -69,6 +69,12 @@ class SimServoDriver:
     # --- protocol -------------------------------------------------------------------
 
     def handle(self, frame: Frame) -> list[Frame]:
+        """Decode one command frame and return whatever the driver would reply with.
+
+        Decodes with its own hand-written :mod:`struct` unpacking rather than this
+        library's codec, so a shared bug cannot cancel out. Protocol-accurate for the
+        commands it models; a pass here is not a hardware guarantee.
+        """
         if not frame.is_extended_id:
             return []
         packet_id, motor_id = split_arbitration_id(frame.arbitration_id)
@@ -172,6 +178,12 @@ class SimServoDriver:
         return frames
 
     def status_frame(self) -> Frame:
+        """One status upload, as the driver sends at its configured rate.
+
+        A rate of 0 is modelled too - see ``status_rate_hz`` - because a driver that never
+        uploads is the most common servo-mode misconfiguration and the library has to
+        diagnose it rather than report zeros forever.
+        """
         scaling = self.spec.servo
         degrees = self.plant.position * 180.0 / 3.141592653589793
         erpm = 0.0
@@ -200,6 +212,12 @@ class SimServoDriver:
         )
 
     def bootloader_frame(self) -> Frame:
+        """The ``0x2C`` "entered servo mode" reply, function id only.
+
+        Handled as an *event*, never decoded as position. The manual documents this reply
+        but no frame that causes mode entry, which is why servo mode is detected rather
+        than commanded.
+        """
         return Frame(
             arbitration_id(ServoFunction.BOOTLOADER_JUMP, self.motor_id),
             bytes(8),

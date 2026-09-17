@@ -68,9 +68,24 @@ class MotorEndpoint(Generic[StateT]):
     # --- Endpoint protocol (subclasses implement) -----------------------------------
 
     def accepts(self, frame: Frame) -> bool:  # pragma: no cover - abstract
+        """Whether this frame belongs to this motor. Runs on the receive thread.
+
+        Called for every frame on the bus, so it must be cheap and must never raise.
+        Subclasses filter on several conditions, not just the payload's first byte: a
+        library that checks only that decodes any colliding frame as this motor's state.
+        """
         raise NotImplementedError
 
     def on_frame(self, frame: Frame, rx_monotonic: float) -> None:  # pragma: no cover
+        """Decode one accepted frame and publish it. Runs on the receive thread.
+
+        Must never raise: a decode failure is counted, and a fault becomes latched *data*.
+        Neither turns into control flow until :meth:`update` runs on the caller's thread,
+        after a safe-stop frame has gone out.
+
+        ``rx_monotonic`` is the arrival time from :func:`time.monotonic`, which is what
+        staleness is measured against - not the bus timestamp.
+        """
         raise NotImplementedError
 
     def update(self) -> StateT:  # pragma: no cover - abstract
@@ -94,6 +109,12 @@ class MotorEndpoint(Generic[StateT]):
 
     @property
     def in_control(self) -> bool:
+        """Whether a :meth:`control` block is currently open.
+
+        Commands are refused outside one with
+        :class:`~cubemarspycan.errors.NotInControlMode`, because the driver is not in the
+        mode that would act on them.
+        """
         return self._entered
 
     @contextmanager
@@ -267,6 +288,11 @@ class MotorEndpoint(Generic[StateT]):
 
     @property
     def faulted(self) -> bool:
+        """Whether a fault is latched, whether or not it has been raised yet.
+
+        Stays true until :meth:`clear_fault`, so it survives catching the exception. Reads
+        the latch, so it is safe from either thread and sends nothing.
+        """
         return self._faults.faulted
 
     def clear_fault(self) -> None:
@@ -331,4 +357,5 @@ class MotorEndpoint(Generic[StateT]):
             )
 
     def device_info(self) -> str:
+        """``"AK40-10-KV170 id 1"`` - spec name and CAN id, for messages and logs."""
         return f"{self.spec.name} id {self.motor_id}"

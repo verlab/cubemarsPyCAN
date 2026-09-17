@@ -25,6 +25,7 @@ version = release
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
+    "sphinx.ext.coverage",
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx_copybutton",
@@ -72,6 +73,12 @@ python_maximum_signature_line_length = 88
 toc_object_entries_show_parents = "hide"
 
 # -- cross references ------------------------------------------------------------------
+
+coverage_show_missing_items = True
+# registry.get is documented under its public alias, cubemarspycan.get_spec, on the API
+# index page. The coverage builder works per module and cannot see that, so it reports the
+# one it cannot find. Verified as the only bare  in the package.
+coverage_ignore_functions = ["get"]
 
 nitpicky = True
 nitpick_ignore = [

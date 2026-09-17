@@ -64,6 +64,11 @@ class StateLatch(Generic[S]):
             return self._seq
 
     def reset(self) -> None:
+        """Drop the published value, returning the latch to its never-written state.
+
+        For the control thread between runs. Does not reset the sequence number, so a
+        reader cannot mistake a reset for a fresh frame.
+        """
         with self._lock:
             self._value = None
             self._rx_t = 0.0
@@ -131,5 +136,10 @@ class FaultLatch:
 
     @property
     def faulted(self) -> bool:
+        """Whether a fault is currently latched.
+
+        Safe from either thread, and unlike :meth:`take_new` it does not consume the
+        event: this answers "is it faulted", not "is there news".
+        """
         with self._lock:
             return self._event is not None

@@ -56,6 +56,11 @@ class Sighting:
 
     @property
     def mode(self) -> str:
+        """What this sighting looks like: ``"servo"``, ``"MIT"`` or ``"unknown"``.
+
+        Inferred from which replies arrived, not asked for: there is no documented frame
+        that queries a driver's mode.
+        """
         if self.servo_status or self.servo_acks:
             return "servo"
         if self.mit_replies:
@@ -73,9 +78,19 @@ class Scanner:
         self.unclassified: list[str] = []
 
     def accepts(self, frame: Frame) -> bool:
+        """Accept everything. A scanner is looking for whatever is out there.
+
+        Runs on the receive thread. The opposite of a motor endpoint, which filters
+        strictly - here an unmatched frame is the interesting case.
+        """
         return True
 
     def on_frame(self, frame: Frame, rx_monotonic: float) -> None:
+        """Classify one frame into a per-id sighting. Runs on the receive thread.
+
+        Tries both framings and records what fits; never raises, and decodes nothing it is
+        not sure of.
+        """
         self.total += 1
         if frame.is_extended_id:
             self._servo(frame)
@@ -119,6 +134,17 @@ class Scanner:
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
+    """Find motors on the bus and report what each one looks like.
+
+    **Touches the bus.** With ``--poke N`` it sends zero-gain, zero-torque MIT commands to
+    ids 1..N, because a MIT driver only replies when commanded - so a purely passive scan
+    of a MIT-mode motor finds nothing. Those frames produce no motion, but they do leave
+    the driver in MIT mode.
+
+    Returns 0 when at least one motor answered, 1 when nothing did - with the candidate
+    causes ranked, since "no frames at all" and "frames from the wrong id" have different
+    fixes.
+    """
     spec = get(args.motor)
     transport = CanTransport.open(args.url)
     scanner = Scanner(spec)
@@ -202,6 +228,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_monitor(args: argparse.Namespace) -> int:
+    """Print one motor's state continuously until interrupted.
+
+    **Touches the bus.** Sends zero-gain, zero-torque frames, which produce no motion, so
+    it is safe first contact with a powered motor and is what bench step B1 uses. Takes
+    ``--mode {mit,servo}``.
+
+    Returns 0 on a clean interrupt.
+    """
     spec = get(args.motor)
     transport = CanTransport.open(args.url)
     bus = MotorBus(transport)
@@ -312,6 +346,13 @@ def cmd_jog(args: argparse.Namespace) -> int:
 
 
 def cmd_dump_spec(args: argparse.Namespace) -> int:
+    """Print a motor spec and where every constant in it came from.
+
+    Does not touch the bus - it reads the registry only, so it works with no hardware and
+    no adapter. With no motor named, lists the models and their MIT field ranges.
+
+    Returns 0, or 1 for an unknown model name.
+    """
     if args.motor is None:
         print("Models (MIT field ranges, manual v1.0.18 p.63):")
         for name in models():
@@ -366,6 +407,16 @@ def cmd_dump_spec(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
+    """Check the environment and print the CAN bring-up commands.
+
+    Does not touch the bus, and **never runs a privileged command**: it prints the
+    ``ip link`` lines for you to run. Reports the Python and python-can versions, which
+    optional backends are installed, and for each interface its link state, bitrate and
+    controller error state. A link state of ``?`` means neither sysfs nor ``ip`` could be
+    consulted - deliberately distinct from ``down``.
+
+    Returns 0.
+    """
     import can
 
     print(f"cubemarspycan {__version__}")
@@ -434,6 +485,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the full argument parser, with every subcommand attached.
+
+    Public because ``tests/test_examples_and_docs.py`` introspects it to assert the README
+    documents every subcommand - so the parser is the single source of truth for what the
+    CLI offers.
+    """
     parser = argparse.ArgumentParser(
         prog="cubemars",
         description="CAN tools for CubeMars AK-series actuators.",
@@ -498,6 +555,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point for the ``cubemars`` script. Returns the process exit code.
+
+    Turns any :class:`~cubemarspycan.errors.CubemarsError` into a one-line message on
+    stderr and a non-zero code, rather than a traceback: these are operating conditions -
+    a missing interface, an unknown model, a motor that will not answer - not bugs.
+    """
     args = build_parser().parse_args(argv)
     try:
         result: int = args.func(args)

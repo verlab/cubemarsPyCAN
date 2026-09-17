@@ -25,10 +25,42 @@ class FrameSink(Protocol):
 class FrameTransport(Protocol):
     """A bidirectional CAN frame link."""
 
-    def send(self, frame: Frame, timeout: float | None = ...) -> None: ...
+    def send(self, frame: Frame, timeout: float | None = ...) -> None:
+        """Put one frame on the wire, blocking up to ``timeout`` seconds.
 
-    def add_sink(self, sink: FrameSink) -> None: ...
+        Called on the **caller's** thread, from inside the control loop, so the blocking
+        window is the loop's jitter budget: a socketcan send is microseconds, an slcan
+        send over USB serial is 0.5-2 ms.
 
-    def start(self) -> None: ...
+        Raises :class:`~cubemarspycan.errors.SendFailed` rather than returning a status or
+        swallowing the error. A command that did not reach the motor is not a detail the
+        caller can be left to infer.
+        """
+        ...
 
-    def close(self) -> None: ...
+    def add_sink(self, sink: FrameSink) -> None:
+        """Register a receiver. Sinks must be added before :meth:`start`.
+
+        Every registered sink is called on the **receive** thread for every frame, so a
+        sink must never raise and must not block - see :class:`FrameSink`. An
+        implementation is expected to contain and count an exception rather than let it
+        kill reception for the other sinks.
+        """
+        ...
+
+    def start(self) -> None:
+        """Begin receiving. Idempotent: calling it twice must not start a second reader.
+
+        Until this is called, frames may be dropped by the underlying driver. Sinks
+        registered afterwards are not guaranteed to see earlier frames.
+        """
+        ...
+
+    def close(self) -> None:
+        """Stop receiving and release the link. Idempotent, and safe after a failed
+        :meth:`start`.
+
+        Must not raise: it runs from ``__exit__`` and from error-recovery paths, where
+        another exception is usually already unwinding.
+        """
+        ...
