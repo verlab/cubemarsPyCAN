@@ -8,7 +8,7 @@ question the bench sequence answers:
 
 * :class:`ScalingVariant` - the manual's pack and unpack formulas are not exact inverses,
   so we cannot know which the firmware uses. Our encoder must be within 1 LSB of either.
-* :class:`WrapMode` - whether position wraps or saturates past the field limit.
+* :class:`~cubemarspycan.spec.WrapMode` - whether position wraps or saturates past the field limit.
 * ``reply_arbitration_id`` - the manual says "0x00 + Drive ID", which is ambiguous.
 """
 

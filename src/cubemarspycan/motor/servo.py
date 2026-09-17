@@ -239,8 +239,9 @@ class ServoMotor(MotorEndpoint[ServoStatus]):
     def set_origin(self, mode: OriginMode = OriginMode.TEMPORARY) -> None:
         """Set the current position as origin.
 
-        :attr:`OriginMode.PERMANENT` writes flash and the manual restricts it to
-        dual-encoder models. On a single-encoder motor such as the AK40-10 this raises
+        :attr:`~cubemarspycan.codec.servo_can.OriginMode.PERMANENT` writes flash and the
+        manual restricts it to dual-encoder models. On a single-encoder motor such as the
+        AK40-10 this raises
         :class:`~cubemarspycan.errors.CapabilityError` and **no frame is sent**.
         TMotorCANControl sends mode 1 unconditionally, and by default.
         """

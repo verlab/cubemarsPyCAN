@@ -39,12 +39,25 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
 ]
+docs = [
+    # >=7.4 rather than >=8.1: requires-python is >=3.10 and Sphinx 8.2 dropped it, so a
+    # developer on 3.10 would otherwise get an unhelpful resolution error. <9 caps the
+    # major so a routine bump cannot turn the warnings-as-errors build red.
+    "sphinx>=7.4,<9",
+    "myst-parser>=4.0,<5",
+    "furo>=2024.8.6",
+    "linkify-it-py>=2.0",
+    "sphinx-copybutton>=0.5.2",
+]
 
 [project.scripts]
 cubemars = "cubemarspycan.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/h3ct0r/cubemarsPyCAN"
+Homepage = "https://github.com/verlab/cubemarsPyCAN"
+Documentation = "https://verlab.github.io/cubemarsPyCAN/"
+Source = "https://github.com/verlab/cubemarsPyCAN"
+Issues = "https://github.com/verlab/cubemarsPyCAN/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cubemarspycan"]

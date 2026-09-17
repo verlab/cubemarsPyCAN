@@ -11,7 +11,7 @@ B2, B5, B6 and B7 answer questions the manual leaves open; record what you find.
 
 Before anything: `cubemars doctor`, then `cubemars dump-spec AK40-10`.
 
-### B0 — adapter only, motor unpowered
+## B0 — adapter only, motor unpowered
 
 ```bash
 cubemars scan --timeout 5
@@ -20,7 +20,7 @@ cubemars scan --timeout 5
 Expect zero frames, a clean exit, no traceback. *Proves the transport and the
 "nothing there" path before the motor can confuse matters.*
 
-### B1 — motor powered, first frame ever sent
+## B1 — motor powered, first frame ever sent
 
 ```bash
 cubemars monitor --id 1
@@ -39,7 +39,7 @@ first contact. Expect feedback, a plausible temperature, fault 0.
 
 *Abort if the temperature is implausible or any fault appears.*
 
-### B2 — sign and gearbox side, hand-rotated, still zero gains
+## B2 — sign and gearbox side, hand-rotated, still zero gains
 
 With `monitor` running, rotate the output shaft **exactly one turn** by hand.
 
@@ -74,7 +74,7 @@ Easier than doing it by hand: drive past the limit under power at a few rad/s.
 > staleness is measured on frames *received*, so transmitting through the gap does not
 > reset it. The grace window does.
 
-### B3 — first commanded torque, damping only
+## B3 — first commanded torque, damping only
 
 ```python
 m.update(position=0.0, velocity=0.0, kp=0.0, kd=0.3, torque=0.0)
@@ -87,7 +87,7 @@ reported torque *opposes* the direction you push. *First time the motor produces
 > hand-push session, peak 0.372 N·m. Position drifted 0.33 rad without seeking a target,
 > as it should with `kp=0`.
 
-### B4 — 🚩 first commanded motion
+## B4 — 🚩 first commanded motion
 
 ```bash
 cubemars jog --id 1 --position 0.1 --kp 5 --kd 0.3 --zero
@@ -102,7 +102,7 @@ position matches the command within a few LSB (one LSB is 0.38 mrad).
 
 **This is the checkpoint.**
 
-### B5 — scaling agreement
+## B5 — scaling agreement
 
 ```python
 m.update(position=0.0, velocity=5.0, kp=0.0, kd=1.0, torque=0.0)
@@ -118,7 +118,7 @@ everything.
 (`ScalingVariant.EXACT` / `TRUNCATED`), so the library is correct either way — but you
 want to know which you have.
 
-### B6 — back-drive check
+## B6 — back-drive check
 
 At 24 V the motor cannot reach the ±45.5 rad/s velocity field under its own power
 (no-load is ~408 rpm = 42.7 rad/s from Kv/Ke). Spin the output **by hand** faster than
@@ -130,7 +130,7 @@ velocity-field concern at your supply voltage.
 > or a 25.6 V supply. The MIT velocity field was evidently sized to the 435 figure, so
 > there is no designed-in headroom.
 
-### B7 — servo mode
+## B7 — servo mode
 
 First confirm in CubeMarsTool that the driver is in servo mode **and that the CAN status
 rate is not 0**. A rate of 0 means the driver never uploads anything; the wiring is fine

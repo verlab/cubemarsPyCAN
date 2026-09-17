@@ -188,7 +188,7 @@ cubemars scan --url socketcan:vcan0
 
 A `vcan` interface behaves like a real one, which is how this project's CI exercises the
 socketcan path. For a motor that actually answers, use the simulator through the
-[examples](../examples) instead: every one takes `--sim`.
+[examples](https://github.com/verlab/cubemarsPyCAN/tree/main/examples) instead: every one takes `--sim`.
 
 ---
 

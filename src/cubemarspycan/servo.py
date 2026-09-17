@@ -8,7 +8,7 @@ Making each a distinct type puts that exclusivity in the type system rather than
 mode enum the caller has to keep in step. ``m.update(servo.Position(90.0))`` says exactly
 one thing; ``m.position = 90; m.current = 2.0`` - which is how TMotorCANControl models
 it - says two contradictory things and silently resolves them by whichever mode flag was
-set last.
+set last. For example::
 
     m.update(servo.Duty(0.05))
     m.update(servo.Current(1.5))
@@ -83,8 +83,9 @@ class CurrentBrake(Setpoint):
 class Rpm(Setpoint):
     """Speed in **electrical** RPM, not mechanical.
 
-    Use :meth:`ServoMotor.erpm_for` to convert from output rad/s, which needs the pole
-    pair count and gear ratio and refuses if either is unknown.
+    Use :meth:`~cubemarspycan.motor.servo.ServoMotor.erpm_for` to convert from output
+    rad/s, which needs the pole pair count and gear ratio and refuses if either is
+    unknown.
     """
 
     erpm: float

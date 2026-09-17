@@ -180,7 +180,10 @@ class CanTransport(can.Listener):
     # --- transmit -------------------------------------------------------------------
 
     def send(self, frame: Frame, timeout: float | None = 0.05) -> None:
-        """Put one frame on the bus. Raises :class:`SendFailed` rather than swallowing."""
+        """Put one frame on the bus.
+
+        Raises :class:`~cubemarspycan.errors.SendFailed` rather than swallowing it.
+        """
         message = can.Message(
             arbitration_id=frame.arbitration_id,
             data=frame.data,

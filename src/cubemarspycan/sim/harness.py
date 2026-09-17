@@ -132,7 +132,7 @@ def sim_bus(
     servo_drivers: list[SimServoDriver] | None = None,
     channel: str | None = None,
 ) -> tuple[MotorBus, SteppedSim]:
-    """Build a started :class:`MotorBus` wired to a :class:`SteppedSim`.
+    """Build a started :class:`~cubemarspycan.bus.MotorBus` wired to a :class:`SteppedSim`.
 
     Caller closes both; :meth:`SteppedSim.close` and ``MotorBus.close`` are independent.
     """

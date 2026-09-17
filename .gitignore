@@ -26,3 +26,6 @@ TMotorCANControl-master/
 
 # CubeMars manuals and datasheets are their copyright. Cite them, do not republish.
 *.pdf
+
+# Sphinx
+docs/_build/

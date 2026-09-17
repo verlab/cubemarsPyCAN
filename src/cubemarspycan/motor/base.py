@@ -180,8 +180,8 @@ class MotorEndpoint(Generic[StateT]):
     def settle(self, seconds: float, period: float = 0.01) -> StateT | None:
         """Hold the current command for ``seconds``, keeping feedback flowing.
 
-        Use after :meth:`MitMotor.zero_here`, or anywhere you need to wait without letting
-        the link go quiet. Returns the last state seen.
+        Use after :meth:`~cubemarspycan.motor.mit.MitMotor.zero_here`, or anywhere you
+        need to wait without letting the link go quiet. Returns the last state seen.
 
         A bare ``time.sleep`` here sends nothing, so the motor stops replying and the next
         ``update()`` raises. Note that keeping the link alive is not by itself enough when
@@ -198,15 +198,16 @@ class MotorEndpoint(Generic[StateT]):
     def expect_silence(self, seconds: float) -> None:
         """Tolerate missing feedback for ``seconds``, starting now.
 
-        Some operations stop the driver replying for a while - :meth:`MitMotor.zero_here`
-        is the one that bites. Staleness is measured against the last frame *received*, so
+        Some operations stop the driver replying for a while -
+        :meth:`~cubemarspycan.motor.mit.MitMotor.zero_here` is the one that bites.
+        Staleness is measured against the last frame *received*, so
         transmitting through the gap does not help: without this, the first ``update()``
         after such an operation raises :class:`~cubemarspycan.errors.StaleFeedbackError`
         even though nothing is wrong.
 
         This suppresses only the *fatal* limit. The warning still fires, so a gap that
         turns out to be permanent is still visible, and a frame received **after the
-        window opened** ends it early - see :meth:`_in_stale_grace` for why "after"
+        window opened** ends it early - see ``_in_stale_grace`` for why "after"
         rather than "fresh".
         """
         now = time.monotonic()
@@ -218,8 +219,9 @@ class MotorEndpoint(Generic[StateT]):
 
         Two conditions, and the second is the one that is easy to get wrong. The obvious
         test - "stop tolerating once feedback looks fresh" - defeats the window entirely:
-        at the instant :meth:`MitMotor.zero_here` opens it, the last received frame is
-        normally ~10 ms old, so the very next ``update()`` would close the window before
+        at the instant :meth:`~cubemarspycan.motor.mit.MitMotor.zero_here` opens it, the
+        last received frame is normally ~10 ms old, so the very next ``update()`` would
+        close the window before
         the driver has even gone quiet, which is the whole case it exists for.
 
         What ends it early is a frame received *after* it opened. That is proof the link
