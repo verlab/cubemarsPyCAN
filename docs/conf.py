@@ -77,7 +77,7 @@ toc_object_entries_show_parents = "hide"
 coverage_show_missing_items = True
 # registry.get is documented under its public alias, cubemarspycan.get_spec, on the API
 # index page. The coverage builder works per module and cannot see that, so it reports the
-# one it cannot find. Verified as the only bare  in the package.
+# one it cannot find. Verified as the only bare "get" in the package.
 coverage_ignore_functions = ["get"]
 
 nitpicky = True
