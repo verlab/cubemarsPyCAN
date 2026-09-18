@@ -1,11 +1,5 @@
 # First bench session
 
-> **Session of 2026-09-16 (AK40-10 KV170, gs_usb adapter, socketcan `can0` at 1 Mbit/s,
-> 24 V).** B0-B5 and the wrap test are done, and their results are recorded in the spec
-> as `Source.MEASURED`. What each one settled is noted inline below. B7 (servo) is
-> outstanding: it needs the driver switched to servo mode in CubeMarsTool, which cannot
-> be done over CAN.
-
 Run these in order, motor **clamped to the bench**. Each step has a defined abort. Steps
 B2, B5, B6 and B7 answer questions the manual leaves open; record what you find.
 
@@ -61,11 +55,6 @@ Then push past ±12.5 rad by hand and watch what the reading does at the limit:
 
 Until you have done this, multi-turn unwrapping **refuses** rather than guessing.
 
-> **Measured:** driven past the limit at 3 rad/s, the reading jumped
-> **+12.4985 → −12.4863 rad**. The field **wraps**. The AK40-10 spec now records this, so
-> unwrapping is on by default for it; 5.57 output turns tracked continuously afterwards,
-> largest sample-to-sample step 17 mrad.
-
 Easier than doing it by hand: drive past the limit under power at a few rad/s.
 
 > **Note:** `zero_here()` stops the driver replying for about a second. It opens a grace
@@ -83,19 +72,11 @@ m.update(position=0.0, velocity=0.0, kp=0.0, kd=0.3, torque=0.0)
 The motor should feel like a viscous brake and must not move on its own. Check that the
 reported torque *opposes* the direction you push. *First time the motor produces torque.*
 
-> **Measured:** torque opposed motion in **5602 of 5603 samples (100%)** across a 40 s
-> hand-push session, peak 0.372 N·m. Position drifted 0.33 rad without seeking a target,
-> as it should with `kp=0`.
-
 ## B4 — 🚩 first commanded motion
 
 ```bash
 cubemars jog --id 1 --position 0.1 --kp 5 --kd 0.3 --zero
 ```
-
-> **Measured:** a ±0.1 rad step settled within **0.5–3.6 mrad** (1.4–9.5 LSB) at `kp=5`,
-> peak torque 0.14 N·m. The residuals sit inside the datasheet's 18 arcmin (5.2 mrad) of
-> gearbox backlash, so they are mechanical rather than a control problem.
 
 Small gain, small step. Verify it moves the right way, settles, and that the reported
 position matches the command within a few LSB (one LSB is 0.38 mrad).
@@ -111,12 +92,6 @@ m.update(position=0.0, velocity=5.0, kp=0.0, kd=1.0, torque=0.0)
 Check the reported velocity settles near 5 rad/s. A consistent factor off means your
 firmware's field constants differ from the manual's table, which silently mis-scales
 everything.
-
-> **Measured:** commanded ±2 and ±5 rad/s came back at a mean ratio of **0.989**
-> (spread 0.984–0.997). The firmware agrees with the manual's ±45.5 rad/s. The 1.1%
-> shortfall is steady-state friction error at finite `kd`, not scaling. The simulator covers both plausible readings
-(`ScalingVariant.EXACT` / `TRUNCATED`), so the library is correct either way — but you
-want to know which you have.
 
 ## B6 — back-drive check
 

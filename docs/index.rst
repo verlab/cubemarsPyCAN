@@ -4,8 +4,7 @@ cubemarsPyCAN
 Correct, tested CAN control for CubeMars AK-series actuators, in MIT and servo modes.
 
 Every constant is traceable to the *AK Series Module Driver Manual* v1.0.18, a CubeMars
-datasheet, or a bench measurement — and a conversion that would need a constant nobody has
-measured **refuses** rather than guessing. See :class:`~cubemarspycan.spec.Sourced`.
+datasheet, or a bench measurement. See :class:`~cubemarspycan.spec.Sourced`.
 
 .. code-block:: python
 

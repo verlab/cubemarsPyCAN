@@ -119,16 +119,6 @@ from cubemarspycan.spec import unknown
 kt_nm_per_a = unknown("no datasheet consulted yet")
 ```
 
-**Do not fill gaps from TMotorCANControl.** Its table is measurably wrong — it lists
-AK80-9 Kt as 0.091/0.115 against a datasheet 0.095, and AK10-9 as 0.16/0.206 against
-0.198 — and several entries are commented `UNTESTED CONSTANT!` in the source. A plausible
-wrong number is worse than a refusal, because a refusal is visible.
-
-Note also that `Sourced.known` and
-{attr}`~cubemarspycan.spec.Sourced.trusted` are different questions. `NAMEPLATE`
-(inferred from the model name) and `ESTIMATED` (derived from another constant) are both
-*known* and neither is *trusted*.
-
 ## Recording a bench measurement
 
 Do not hand-edit a constant after measuring it. Use
