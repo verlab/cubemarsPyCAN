@@ -1,7 +1,6 @@
 # Migrating from TMotorCANControl
 
-The APIs are deliberately different. The old one's shape encoded several of its bugs, so a
-drop-in replacement would have carried them over. This table maps intent, not syntax.
+The APIs are different so a couple of things are needed for a code migration between the two libraries.
 
 ## Setup
 
@@ -61,20 +60,3 @@ they are separate types here.
 | `Kt` constants marked `UNTESTED CONSTANT!` copied to every motor | per-variant datasheet values, or `UNKNOWN` and the conversion refuses |
 | a `0.59` current fudge factor from one AK80-9 applied everywhere | gone; `estimated_current_a` is explicit and warns |
 | NumPy 2 raised `OverflowError` on any negative servo position | no NumPy dependency at all |
-
-## What was worth keeping
-
-The idea of a `with`-block lifecycle, and the idea of multi-turn unwrapping. Both are
-reimplemented here — the unwrapper is now a pure, tested state machine that refuses to
-guess whether your firmware wraps or saturates.
-
-## Licence
-
-TMotorCANControl is GPLv3. This library is **MIT**, which is only defensible because it is
-written clean-room from the manual and the CubeMars datasheets with no code taken from it.
-`tools/check_cleanroom.py` compares token shingles against the reference. It is a
-pre-release check run locally, not a CI step - the reference is gitignored, so in CI it
-would have nothing to compare against.
-
-Practically: you can vendor, fork or ship cubemarsPyCAN inside a closed product. You could
-not do that with the library it replaces.

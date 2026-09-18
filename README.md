@@ -225,11 +225,5 @@ pytest -m socketcan
 
 [MIT](LICENSE).
 
-The implementation is clean-room from the *AK Series Module Driver Manual* v1.0.18 and the
-CubeMars product datasheets. No code is taken from TMotorCANControl, which is GPLv3 —
-`tools/check_cleanroom.py` compares token shingles against it. Run it before a release,
-with the reference checked out beside the source: it is deliberately not a CI step,
-because the reference is gitignored and a CI run would compare nothing and still pass.
-
 The manual and datasheets remain CubeMars' copyright. This repository cites them by page
 and does not redistribute them.
